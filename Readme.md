@@ -86,15 +86,28 @@ Para evitar conflitos no banco de dados, siga estas regras ao criar novas funcio
 
 ### 1\. Criando uma nova Tabela ou Campo
 
-Sempre que você alterar um arquivo em `app/models/`, você precisa gerar uma *migration*:
+Sempre que você criar um **novo arquivo de modelo** em `app/models/` ou alterar um existente, siga este fluxo:
 
-1.  Garanta que você tem a versão mais atual do código (`git pull`).
-2.  Gere o arquivo de migração:
-    ```bash
-    alembic revision --autogenerate -m "descricao_da_mudanca"
+1.  **Atualize o Código:** Garanta que você tem a versão mais atual (`git pull`).
+
+2.  **⚠️ REGISTRE O MODELO:**
+    Se você criou um **arquivo novo** (ex: `app/models/tag.py`), você **DEVE** importá-lo no arquivo `alembic/env.py` para que o Alembic o reconheça.
+
+    *Abra `alembic/env.py` e adicione:*
+
+    ```python
+    from app.models.user import User
+    from app.models.produto import tag
     ```
-3.  Verifique o arquivo gerado em `alembic/versions/` para ver se está tudo certo.
-4.  Aplique no seu banco:
+
+3.  **Gere a Migration:**
+
+    ```bash
+    alembic revision --autogenerate -m "cria tabela produto"
+    ```
+
+4.  **Aplique:**
+
     ```bash
     alembic upgrade head
     ```
