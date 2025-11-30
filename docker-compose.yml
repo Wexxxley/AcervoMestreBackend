@@ -1,0 +1,13 @@
+services:
+  db:
+    image: postgres:15-alpine 
+    container_name: meu_postgres_container
+    restart: always
+    environment:
+      - POSTGRES_USER=user_acervo
+      - POSTGRES_PASSWORD=senha_segura
+      - POSTGRES_DB=acervo_mestre_db
+    ports:
+      - "5432:5432"  
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data 
