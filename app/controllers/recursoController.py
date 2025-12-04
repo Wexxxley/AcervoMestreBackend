@@ -123,20 +123,31 @@ async def get_all_recursos(
 
 
 @recurso_router.post("/create", response_model=RecursoRead, status_code=status.HTTP_201_CREATED)
-async def create_recurso(recurso_in: RecursoCreate, session: AsyncSession = Depends(get_session)):
-    # Verificar se o autor existe
-    user_statement = select(User).where(User.id == recurso_in.autor_id)
+async def create_recurso(
+    recurso_in: RecursoCreate,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    # Requer autenticação
+    if not current_user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticação necessária")
+
+    # Derivar autor_id do usuário autenticado para evitar impersonation
+    recurso_dict = recurso_in.model_dump()
+    recurso_dict["autor_id"] = current_user.id
+
+    # Verificar se autor existe (sanity, embora current_user exista)
+    user_statement = select(User).where(User.id == recurso_dict["autor_id"])
     user_result = await session.exec(user_statement)
     if not user_result.first():
         raise HTTPException(status_code=404, detail="Autor não encontrado")
-    
-    recurso_dict = recurso_in.model_dump()
+
     db_recurso = Recurso.model_validate(recurso_dict)
-    
+
     session.add(db_recurso)
     await session.commit()
     await session.refresh(db_recurso)
-        
+
     return db_recurso
 
 
@@ -144,7 +155,8 @@ async def create_recurso(recurso_in: RecursoCreate, session: AsyncSession = Depe
 async def update_recurso(
     recurso_id: int, 
     recurso_input: RecursoUpdate, 
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     statement = select(Recurso).where(Recurso.id == recurso_id)
     result = await session.exec(statement)
@@ -152,6 +164,14 @@ async def update_recurso(
 
     if not db_recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
+
+    # Requer autenticação
+    if not current_user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticação necessária")
+
+    # Permissão: apenas autor ou Coordenador podem editar
+    if not (current_user.id == db_recurso.autor_id or current_user.perfil == Perfil.Coordenador):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
 
     recurso_data = recurso_input.model_dump(exclude_unset=True)
 
@@ -165,13 +185,25 @@ async def update_recurso(
 
 
 @recurso_router.delete("/delete/{recurso_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_recurso(recurso_id: int, session: AsyncSession = Depends(get_session)):
+async def delete_recurso(
+    recurso_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     statement = select(Recurso).where(Recurso.id == recurso_id)
     result = await session.exec(statement)
     recurso = result.first()
 
     if not recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
+
+    # Requer autenticação
+    if not current_user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticação necessária")
+
+    # Permissão: apenas autor ou Coordenador podem deletar
+    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para excluir recurso")
 
     await session.delete(recurso)
     await session.commit()
