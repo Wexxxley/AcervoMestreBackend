@@ -19,3 +19,15 @@ class UserUpdate(SQLModel):
     status: Status | None = None
     path_img: str | None = None
     data_nascimento: date | None = None
+
+class UserRead(SQLModel):
+    id: int | None = None
+    nome: str
+    email: str
+    perfil: Perfil
+    status: Status
+    path_img: str | None = None
+    data_nascimento: date | None = None
+
+    class Config:
+        from_attributes = True
