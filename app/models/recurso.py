@@ -1,7 +1,7 @@
 from typing import Optional
 from datetime import datetime, timezone
 from sqlmodel import SQLModel, Field
-from sqlalchemy import DateTime, Text, ForeignKeyConstraint
+from sqlalchemy import DateTime, Text, ForeignKeyConstraint, Index
 from sqlalchemy import Column
 from app.enums.visibilidade import Visibilidade
 from app.enums.estrutura_recurso import EstruturaRecurso
@@ -42,7 +42,11 @@ class Recurso(SQLModel, table=True):
         sa_type=DateTime(timezone=True)
     )
 
-    # Foreign Key Constraint com comportamento explícito
+    # Foreign Key Constraint e Indexes para performance
     __table_args__ = (
         ForeignKeyConstraint(['autor_id'], ['User.id'], ondelete='RESTRICT'),
+        Index('idx_recurso_estrutura', 'estrutura'),
+        Index('idx_recurso_criado_em', 'criado_em'),
+        Index('idx_recurso_autor_id', 'autor_id'),
+        Index('idx_recurso_visibilidade', 'visibilidade'),
     )
