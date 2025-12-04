@@ -124,6 +124,12 @@ async def get_all_recursos(
 
 @recurso_router.post("/create", response_model=RecursoRead, status_code=status.HTTP_201_CREATED)
 async def create_recurso(recurso_in: RecursoCreate, session: AsyncSession = Depends(get_session)):
+    # Verificar se o autor existe
+    user_statement = select(User).where(User.id == recurso_in.autor_id)
+    user_result = await session.exec(user_statement)
+    if not user_result.first():
+        raise HTTPException(status_code=404, detail="Autor não encontrado")
+    
     recurso_dict = recurso_in.model_dump()
     db_recurso = Recurso.model_validate(recurso_dict)
     
