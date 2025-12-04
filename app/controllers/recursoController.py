@@ -93,12 +93,12 @@ async def get_all_recursos(
     statement = select(Recurso)
     
     # Aplicar filtros de visibilidade
-    # Usuários ALUNO só veem recursos PUBLICOS
-    # Usuários não-ALUNO (Professor, Coordenador, Gestor) veem TODOS os recursos
-    if current_user and current_user.perfil == Perfil.Aluno:
-        # Alunos só veem PUBLICOS
+    # Usuários ALUNO e não autenticados só veem recursos PUBLICOS
+    # Usuários autenticados não-ALUNO (Professor, Coordenador, Gestor) veem TODOS os recursos
+    if current_user is None or (current_user and current_user.perfil == Perfil.Aluno):
+        # Alunos e usuários não autenticados só veem PUBLICOS
         statement = statement.where(Recurso.visibilidade == Visibilidade.PUBLICO)
-    # Usuários não-ALUNO ou não autenticados veem todos os recursos (sem filtro adicional)
+    # Usuários autenticados não-ALUNO veem todos os recursos (sem filtro adicional)
     
     # Filtro por palavra-chave
     if palavra_chave:
@@ -117,10 +117,10 @@ async def get_all_recursos(
     count_statement = select(func.count()).select_from(Recurso)
     
     # Aplicar os mesmos filtros de visibilidade na contagem
-    if current_user and current_user.perfil == Perfil.Aluno:
-        # Alunos só contam PUBLICOS
+    if current_user is None or (current_user and current_user.perfil == Perfil.Aluno):
+        # Alunos e usuários não autenticados só contam PUBLICOS
         count_statement = count_statement.where(Recurso.visibilidade == Visibilidade.PUBLICO)
-    # Usuários não-ALUNO ou não autenticados contam todos os recursos (sem filtro adicional)
+    # Usuários autenticados não-ALUNO contam todos os recursos (sem filtro adicional)
     
     if palavra_chave:
         count_statement = count_statement.where(
