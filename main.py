@@ -3,7 +3,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.controllers.userController import user_router
-from app.controllers.recursoController import recurso_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,4 +32,3 @@ app.add_middleware(
 
 # Rotas
 app.include_router(user_router)
-app.include_router(recurso_router)
