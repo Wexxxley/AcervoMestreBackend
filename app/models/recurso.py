@@ -1,8 +1,7 @@
 from typing import Optional
 from datetime import datetime, timezone
 from sqlmodel import SQLModel, Field
-from sqlalchemy import DateTime, Text, ForeignKeyConstraint, Index
-from sqlalchemy import Column
+from sqlalchemy import DateTime, Text, ForeignKeyConstraint, Index, Column, ForeignKey
 from app.enums.visibilidade import Visibilidade
 from app.enums.estrutura_recurso import EstruturaRecurso
 
@@ -16,7 +15,8 @@ class Recurso(SQLModel, table=True):
     visibilidade: Visibilidade = Field(default=Visibilidade.PUBLICO)
     estrutura: EstruturaRecurso
     
-    autor_id: int = Field(foreign_key="User.id")
+    # Autor do recurso — referencia explícita com comportamento ondelete
+    autor_id: int = Field(sa_column=Column(ForeignKey("User.id", ondelete="RESTRICT"), nullable=False))
     
     is_destaque: bool = Field(default=False)
     
