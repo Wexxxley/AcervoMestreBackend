@@ -19,6 +19,21 @@ async def get_recurso_by_id(
     session: AsyncSession = Depends(get_session),
     current_user: User | None = Depends(get_current_user)
 ):
+    """Retorna um recurso por ID e incrementa o contador de visualizações.
+
+    Parâmetros:
+    - `recurso_id` (int): ID do recurso a ser retornado.
+    - `session` (AsyncSession): sessão do banco (injeção de dependência).
+    - `current_user` (User|None): usuário autenticado (se houver).
+
+    Retorna:
+    - `RecursoRead` com os dados do recurso solicitado.
+
+    Erros possíveis:
+    - 404: recurso não encontrado.
+    - 403: acesso negado se recurso for PRIVADO e usuário for ALUNO ou não autenticado.
+    - 401: quando autenticação for necessária para operações protegidas (usada em outras rotas).
+    """
     # Primeiro, incrementar visualizações atomicamente
     await session.execute(
         update(Recurso)
@@ -56,6 +71,22 @@ async def get_all_recursos(
     estrutura: str | None = Query(None, description="Filtra por estrutura (UPLOAD, URL, NOTA)"),
     current_user: User | None = Depends(get_current_user),
 ):
+    """Lista recursos com paginação e filtros.
+
+    Parâmetros:
+    - `session` (AsyncSession): sessão do banco.
+    - `pagination` (PaginationParams): parâmetros de paginação (`page`, `per_page`).
+    - `palavra_chave` (str|None): busca em `titulo` e `descricao`.
+    - `estrutura` (str|None): filtra por `UPLOAD`, `URL` ou `NOTA`.
+    - `current_user` (User|None): usuário autenticado (se houver) para aplicar filtros de visibilidade.
+
+    Retorna:
+    - `PaginatedResponse[RecursoRead]` com itens paginados e metadados (total, páginas).
+
+    Regras de visibilidade:
+    - ALUNO e usuários não autenticados veem apenas recursos `PUBLICO`.
+    - Outros perfis (Professor, Coordenador, Gestor) veem todos os recursos.
+    """
     # Montar a query base
     statement = select(Recurso)
     
@@ -128,6 +159,24 @@ async def create_recurso(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    """Cria um novo recurso.
+
+    Parâmetros:
+    - `recurso_in` (RecursoCreate): dados do recurso a criar.
+    - `session` (AsyncSession): sessão do banco.
+    - `current_user` (User): usuário autenticado; será usado como autor do recurso.
+
+    Comportamento:
+    - `autor_id` é derivado do `current_user` para evitar impersonation.
+
+    Retorna:
+    - `RecursoRead` com os dados do recurso criado (HTTP 201).
+
+    Erros possíveis:
+    - 401: quando não autenticado.
+    - 404: autor não encontrado (sanity check; improvável se `current_user` válido).
+    - 422: validação de campos específicos por `estrutura`.
+    """
     # Requer autenticação
     if not current_user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticação necessária")
@@ -158,6 +207,27 @@ async def update_recurso(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    """Atualiza campos de um recurso existente.
+
+    Parâmetros:
+    - `recurso_id` (int): ID do recurso a ser atualizado.
+    - `recurso_input` (RecursoUpdate): campos a atualizar (parciais permitidas).
+    - `session` (AsyncSession): sessão do banco.
+    - `current_user` (User): usuário autenticado (autor ou Coordenador exigido para permissão).
+
+    Regras de autorização:
+    - Apenas o autor do recurso ou usuários com `Perfil.Coordenador` podem editar.
+
+    Retorna:
+    - `RecursoRead` com os dados atualizados.
+
+    Erros possíveis:
+    - 401: não autenticado.
+    - 403: permissão negada para editar.
+    - 404: recurso não encontrado.
+    - 422: tentativa de atualizar campos polimórficos de maneira inconsistente.
+    """
+
     statement = select(Recurso).where(Recurso.id == recurso_id)
     result = await session.exec(statement)
     db_recurso = result.first()
@@ -190,6 +260,25 @@ async def delete_recurso(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    """Exclui um recurso existente.
+
+    Parâmetros:
+    - `recurso_id` (int): ID do recurso a ser excluído.
+    - `session` (AsyncSession): sessão do banco.
+    - `current_user` (User): usuário autenticado (autor ou Coordenador exigido para permissão).
+
+    Regras de autorização:
+    - Apenas o autor do recurso ou usuários com `Perfil.Coordenador` podem excluir.
+
+    Retorno:
+    - 204 No Content em sucesso.
+
+    Erros possíveis:
+    - 401: não autenticado.
+    - 403: permissão negada para excluir.
+    - 404: recurso não encontrado.
+    """
+
     statement = select(Recurso).where(Recurso.id == recurso_id)
     result = await session.exec(statement)
     recurso = result.first()
