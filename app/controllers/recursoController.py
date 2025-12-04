@@ -4,13 +4,21 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.dtos.recursoDtos import RecursoCreate, RecursoRead, RecursoUpdate
 from app.models.recurso import Recurso
+from app.models.user import User
 from app.core.database import get_session
+from app.core.security import get_current_user
+from app.enums.visibilidade import Visibilidade
+from app.enums.perfil import Perfil
 from app.utils.pagination import PaginationParams, PaginatedResponse
 
 recurso_router = APIRouter(prefix="/recursos", tags=["Recursos"])
 
 @recurso_router.get("/get/{recurso_id}", response_model=RecursoRead)
-async def get_recurso_by_id(recurso_id: int, session: AsyncSession = Depends(get_session)):
+async def get_recurso_by_id(
+    recurso_id: int, 
+    session: AsyncSession = Depends(get_session),
+    current_user: User | None = Depends(get_current_user)
+):
     # Primeiro, incrementar visualizações atomicamente
     await session.execute(
         update(Recurso)
@@ -25,6 +33,15 @@ async def get_recurso_by_id(recurso_id: int, session: AsyncSession = Depends(get
     
     if not recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
+    
+    # Verificar permissões de visibilidade
+    if recurso.visibilidade == Visibilidade.PRIVADO:
+        # Recursos privados só podem ser vistos por usuários que NÃO são ALUNO
+        if not current_user or current_user.perfil == Perfil.Aluno:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="Acesso negado a recurso privado"
+            )
     
     await session.commit()
     
