@@ -1,6 +1,6 @@
 from sqlmodel import SQLModel
 from datetime import datetime
-from pydantic import Field
+from pydantic import Field, HttpUrl
 from app.enums.visibilidade import Visibilidade
 from app.enums.estrutura_recurso import EstruturaRecurso
 
@@ -16,7 +16,7 @@ class RecursoCreate(SQLModel):
     storage_key: str | None = Field(None, max_length=500)
     mime_type: str | None = Field(None, max_length=100)
     tamanho_bytes: int | None = None
-    url_externa: str | None = None
+    url_externa: HttpUrl | None = None
 
 class RecursoUpdate(SQLModel):
     titulo: str | None = Field(None, max_length=255)
@@ -28,7 +28,7 @@ class RecursoUpdate(SQLModel):
     storage_key: str | None = Field(None, max_length=500)
     mime_type: str | None = Field(None, max_length=100)
     tamanho_bytes: int | None = None
-    url_externa: str | None = Field(None, max_length=500)
+    url_externa: HttpUrl | None = None
 
 class RecursoRead(SQLModel):
     id: int
@@ -47,7 +47,7 @@ class RecursoRead(SQLModel):
     storage_key: str | None = None
     mime_type: str | None = None
     tamanho_bytes: int | None = None
-    url_externa: str | None = None
+    url_externa: HttpUrl | None = None
     
     criado_em: datetime
 
