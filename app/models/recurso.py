@@ -1,7 +1,7 @@
 from typing import Optional
 from datetime import datetime, timezone
 from sqlmodel import SQLModel, Field
-from sqlalchemy import DateTime, Text
+from sqlalchemy import DateTime, Text, ForeignKeyConstraint
 from sqlalchemy import Column
 from app.enums.visibilidade import Visibilidade
 from app.enums.estrutura_recurso import EstruturaRecurso
@@ -40,4 +40,9 @@ class Recurso(SQLModel, table=True):
     criado_em: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_type=DateTime(timezone=True)
+    )
+
+    # Foreign Key Constraint com comportamento explícito
+    __table_args__ = (
+        ForeignKeyConstraint(['autor_id'], ['User.id'], ondelete='RESTRICT'),
     )
