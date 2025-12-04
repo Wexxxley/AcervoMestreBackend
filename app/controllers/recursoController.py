@@ -185,11 +185,6 @@ async def create_recurso(
     recurso_dict = recurso_in.model_dump()
     recurso_dict["autor_id"] = current_user.id
 
-    # Verificar se autor existe (sanity, embora current_user exista)
-    user_statement = select(User).where(User.id == recurso_dict["autor_id"])
-    user_result = await session.exec(user_statement)
-    if not user_result.first():
-        raise HTTPException(status_code=404, detail="Autor não encontrado")
 
     db_recurso = Recurso.model_validate(recurso_dict)
 
