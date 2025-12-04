@@ -34,32 +34,37 @@ async def get_recurso_by_id(
     - 403: acesso negado se recurso for PRIVADO e usuário for ALUNO ou não autenticado.
     - 401: quando autenticação for necessária para operações protegidas (usada em outras rotas).
     """
-    # Primeiro, incrementar visualizações atomicamente
+    # Buscar o recurso primeiro
+    statement = select(Recurso).where(Recurso.id == recurso_id)
+    result = await session.exec(statement)
+    recurso = result.first()
+
+    if not recurso:
+        raise HTTPException(status_code=404, detail="Recurso não encontrado")
+
+    # Verificar permissões de visibilidade antes de incrementar
+    if recurso.visibilidade == Visibilidade.PRIVADO:
+        # Recursos privados só podem ser vistos por usuários que NÃO são ALUNO
+        if not current_user or current_user.perfil == Perfil.Aluno:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acesso negado a recurso privado",
+            )
+
+    # Incrementar visualizações atomicamente apenas após validações
     await session.execute(
         update(Recurso)
         .where(Recurso.id == recurso_id)
         .values(visualizacoes=Recurso.visualizacoes + 1)
     )
-    
-    # Depois buscar o recurso atualizado
+
+    # Persistir a atualização e retornar o recurso atualizado
+    await session.commit()
+
     statement = select(Recurso).where(Recurso.id == recurso_id)
     result = await session.exec(statement)
     recurso = result.first()
-    
-    if not recurso:
-        raise HTTPException(status_code=404, detail="Recurso não encontrado")
-    
-    # Verificar permissões de visibilidade
-    if recurso.visibilidade == Visibilidade.PRIVADO:
-        # Recursos privados só podem ser vistos por usuários que NÃO são ALUNO
-        if not current_user or current_user.perfil == Perfil.Aluno:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, 
-                detail="Acesso negado a recurso privado"
-            )
-    
-    await session.commit()
-    
+
     return recurso
 
 
