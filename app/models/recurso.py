@@ -1,0 +1,43 @@
+from typing import Optional
+from datetime import datetime, timezone
+from sqlmodel import SQLModel, Field
+from sqlalchemy import DateTime, Text
+from sqlalchemy import Column
+from app.enums.visibilidade import Visibilidade
+from app.enums.estrutura_recurso import EstruturaRecurso
+
+class Recurso(SQLModel, table=True):
+    __tablename__ = "Recurso"
+
+    id: int | None = Field(default=None, primary_key=True)
+    titulo: str = Field(max_length=255)
+    descricao: str = Field(max_length=1000)
+    
+    visibilidade: Visibilidade = Field(default=Visibilidade.PUBLICO)
+    estrutura: EstruturaRecurso
+    
+    autor_id: int = Field(foreign_key="User.id")
+    
+    is_destaque: bool = Field(default=False)
+    
+    # Métricas
+    visualizacoes: int = Field(default=0)
+    downloads: int = Field(default=0)
+    curtidas: int = Field(default=0)
+    
+    # Campos específicos por tipo (opcionais)
+    # Para NOTA
+    conteudo_markdown: str | None = Field(default=None, sa_column=Column(Text))
+    
+    # Para UPLOAD
+    storage_key: str | None = Field(default=None, max_length=500)
+    mime_type: str | None = Field(default=None, max_length=100)
+    tamanho_bytes: int | None = Field(default=None)
+    
+    # Para URL
+    url_externa: str | None = Field(default=None, max_length=500)
+    
+    criado_em: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True)
+    )
