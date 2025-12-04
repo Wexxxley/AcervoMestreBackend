@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.dtos.recursoDtos import RecursoCreate, RecursoRead, RecursoUpdate
@@ -11,6 +11,14 @@ recurso_router = APIRouter(prefix="/recursos", tags=["Recursos"])
 
 @recurso_router.get("/get/{recurso_id}", response_model=RecursoRead)
 async def get_recurso_by_id(recurso_id: int, session: AsyncSession = Depends(get_session)):
+    # Primeiro, incrementar visualizações atomicamente
+    await session.execute(
+        update(Recurso)
+        .where(Recurso.id == recurso_id)
+        .values(visualizacoes=Recurso.visualizacoes + 1)
+    )
+    
+    # Depois buscar o recurso atualizado
     statement = select(Recurso).where(Recurso.id == recurso_id)
     result = await session.exec(statement)
     recurso = result.first()
@@ -18,11 +26,7 @@ async def get_recurso_by_id(recurso_id: int, session: AsyncSession = Depends(get
     if not recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
     
-    # Incrementar visualizações
-    recurso.visualizacoes += 1
-    session.add(recurso)
     await session.commit()
-    await session.refresh(recurso)
     
     return recurso
 
