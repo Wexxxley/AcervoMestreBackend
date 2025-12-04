@@ -129,14 +129,22 @@ Se alguém instalar uma biblioteca nova, o arquivo `requirements.txt` será atua
 pip install -r requirements.txt
 ```
 
-## 🆘 Solução de Problemas Comuns
+---
 
-**Erro: "Target database is not up to date"**
+## 🧪 Testes Automatizados
 
-  * Significa que existem migrations novas que você ainda não rodou.
-  * **Solução:** Rode `alembic upgrade head`.
+Utilizamos o **Pytest** para garantir a qualidade do código. O ambiente de testes é configurado automaticamente para usar um banco de dados em memória (SQLite), garantindo que os testes não afetem o banco de desenvolvimento.
 
-**Erro: "Connection refused"**
+### 1\. Rodando a Suite de Testes
 
-  * O banco de dados não está rodando.
-  * **Solução:** Verifique se o Docker está aberto e rode `docker compose up -d`.
+Para executar todos os testes do projeto, basta rodar na raiz:
+
+```bash
+pytest tests/
+```
+
+Para rodar apenas um arquivo específico:
+
+```bash
+pytest tests/controllers/test_user_controller.py -v
+```
