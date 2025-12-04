@@ -34,7 +34,6 @@ async def get_recurso_by_id(
     - 403: acesso negado se recurso for PRIVADO e usuário for ALUNO ou não autenticado.
     - 401: quando autenticação for necessária para operações protegidas (usada em outras rotas).
     """
-    # Buscar o recurso primeiro
     statement = select(Recurso).where(Recurso.id == recurso_id)
     result = await session.exec(statement)
     recurso = result.first()
@@ -42,7 +41,6 @@ async def get_recurso_by_id(
     if not recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
-    # Verificar permissões de visibilidade antes de incrementar
     if recurso.visibilidade == Visibilidade.PRIVADO:
         # Recursos privados só podem ser vistos por usuários que NÃO são ALUNO
         if not current_user or current_user.perfil == Perfil.Aluno:
@@ -51,8 +49,7 @@ async def get_recurso_by_id(
                 detail="Acesso negado a recurso privado",
             )
 
-    # Incrementar visualizações atomicamente apenas após validações
-    await session.execute(
+    await session.exec(
         update(Recurso)
         .where(Recurso.id == recurso_id)
         .values(visualizacoes=Recurso.visualizacoes + 1)
@@ -203,7 +200,7 @@ async def create_recurso(
 @recurso_router.patch("/patch/{recurso_id}", response_model=RecursoRead)
 async def update_recurso(
     recurso_id: int, 
-    recurso_input: RecursoUpdate, 
+    recurso_in: RecursoUpdate, 
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -211,7 +208,7 @@ async def update_recurso(
 
     Parâmetros:
     - `recurso_id` (int): ID do recurso a ser atualizado.
-    - `recurso_input` (RecursoUpdate): campos a atualizar (parciais permitidas).
+    - `recurso_in` (RecursoUpdate): campos a atualizar (parciais permitidas).
     - `session` (AsyncSession): sessão do banco.
     - `current_user` (User): usuário autenticado (autor ou Coordenador exigido para permissão).
 
@@ -243,7 +240,22 @@ async def update_recurso(
     if not (current_user.id == db_recurso.autor_id or current_user.perfil == Perfil.Coordenador):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
 
-    recurso_data = recurso_input.model_dump(exclude_unset=True)
+    recurso_data = recurso_in.model_dump(exclude_unset=True)
+
+    # Validate that updated fields are compatible with the resource's estrutura type
+    estrutura_allowed_fields = {
+        "UPLOAD": {"titulo", "descricao", "visibilidade", "is_destaque", "storage_key", "mime_type", "tamanho_bytes"},
+        "URL": {"titulo", "descricao", "visibilidade", "is_destaque", "url_externa"},
+        "NOTA": {"titulo", "descricao", "visibilidade", "is_destaque", "conteudo_markdown"},
+    }
+    estrutura = db_recurso.estrutura
+    allowed_fields = estrutura_allowed_fields.get(estrutura, set())
+    for field in recurso_data:
+        if field not in allowed_fields:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Campo '{field}' não é permitido para recursos do tipo '{estrutura}'"
+            )
 
     for key, value in recurso_data.items():
         setattr(db_recurso, key, value)
