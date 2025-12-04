@@ -1,8 +1,20 @@
+# --- Core API ---
 fastapi
 uvicorn[standard]
+python-dotenv
+pydantic-settings
+
+# --- Banco de Dados ---
 sqlmodel
 alembic
 asyncpg
-python-dotenv
+
+# --- Autenticação ---
 pwdlib[argon2]
 pyjwt
+
+# --- Testes ---
+pytest
+pytest-asyncio
+httpx
+aiosqlite
