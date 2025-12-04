@@ -20,10 +20,10 @@ class Recurso(SQLModel, table=True):
     
     is_destaque: bool = Field(default=False)
     
-    # Métricas
-    visualizacoes: int = Field(default=0)
-    downloads: int = Field(default=0)
-    curtidas: int = Field(default=0)
+    # Métricas (não-negativas)
+    visualizacoes: int = Field(default=0, ge=0)
+    downloads: int = Field(default=0, ge=0)
+    curtidas: int = Field(default=0, ge=0)
     
     # Campos específicos por tipo (opcionais)
     # Para NOTA
@@ -32,7 +32,7 @@ class Recurso(SQLModel, table=True):
     # Para UPLOAD
     storage_key: str | None = Field(default=None, max_length=500)
     mime_type: str | None = Field(default=None, max_length=100)
-    tamanho_bytes: int | None = Field(default=None)
+    tamanho_bytes: int | None = Field(default=None, ge=0)
     
     # Para URL
     url_externa: str | None = Field(default=None, max_length=500)
