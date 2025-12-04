@@ -43,22 +43,17 @@ class RecursoUpdate(SQLModel):
     mime_type: str | None = Field(None, max_length=100)
     tamanho_bytes: int | None = None
     url_externa: HttpUrl | None = None
+    """
+    DTO de atualização para Recurso.
 
-    @root_validator
-    def validate_update_fields_for_estrutura(cls, values):
-        # No update, só validar requisitos quando a estrutura é fornecida na requisição
-        estrutura = values.get("estrutura")
-        if estrutura == EstruturaRecurso.NOTA:
-            if values.get("conteudo_markdown") is None:
-                raise ValueError("ao alterar estrutura para NOTA, 'conteudo_markdown' é obrigatório")
-        elif estrutura == EstruturaRecurso.UPLOAD:
-            # exigir todos os campos de upload quando estrutura for alterada para UPLOAD
-            if values.get("storage_key") is None or values.get("mime_type") is None or values.get("tamanho_bytes") is None:
-                raise ValueError("ao alterar estrutura para UPLOAD, 'storage_key', 'mime_type' e 'tamanho_bytes' são obrigatórios")
-        elif estrutura == EstruturaRecurso.URL:
-            if values.get("url_externa") is None:
-                raise ValueError("ao alterar estrutura para URL, 'url_externa' é obrigatório")
-        return values
+    Observação de design: o campo `estrutura` (tipo do recurso: UPLOAD/URL/NOTA)
+    é intencionalmente imutável na aplicação — não é permitido alterar o tipo
+    de um recurso após sua criação, pois isso implicaria em mudança de quais
+    campos polimórficos são relevantes (por exemplo, transformar um UPLOAD em
+    uma NOTA removeria os metadados do arquivo). Para alterar a estrutura do
+    recurso seria necessária uma operação de criação de novo recurso e remoção
+    do anterior.
+    """
 
 class RecursoRead(SQLModel):
     id: int
