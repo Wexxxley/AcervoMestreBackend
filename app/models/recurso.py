@@ -16,7 +16,7 @@ class Recurso(SQLModel, table=True):
     estrutura: EstruturaRecurso
     
     # Autor do recurso — referencia explícita com comportamento ondelete
-    autor_id: int = Field(sa_column=Column(ForeignKey("User.id", ondelete="RESTRICT"), nullable=False))
+    autor_id: int = Field(sa_column=Column(nullable=False))
     
     is_destaque: bool = Field(default=False)
     
@@ -44,7 +44,7 @@ class Recurso(SQLModel, table=True):
 
     # Foreign Key Constraint e Indexes para performance
     __table_args__ = (
-        ForeignKeyConstraint(['autor_id'], ['User.id'], ondelete='RESTRICT'),
+        ForeignKeyConstraint(['autor_id'], ['User.id'], ondelete='RESTRICT', name='fk_recurso_autor_id'),
         Index('idx_recurso_estrutura', 'estrutura'),
         Index('idx_recurso_criado_em', 'criado_em'),
         Index('idx_recurso_autor_id', 'autor_id'),

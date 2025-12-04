@@ -1,6 +1,7 @@
 from sqlmodel import SQLModel
 from datetime import datetime
-from pydantic import Field, HttpUrl, root_validator
+from pydantic import Field, model_validator, ValidationError
+from urllib.parse import urlparse
 from app.enums.visibilidade import Visibilidade
 from app.enums.estrutura_recurso import EstruturaRecurso
 
@@ -16,9 +17,9 @@ class RecursoCreate(SQLModel):
     storage_key: str | None = Field(None, max_length=500)
     mime_type: str | None = Field(None, max_length=100)
     tamanho_bytes: int | None = None
-    url_externa: HttpUrl | None = None
+    url_externa: str | None = None
 
-    @root_validator
+    @model_validator(mode='before')
     def validate_required_fields_for_estrutura(cls, values):
         estrutura = values.get("estrutura")
 
@@ -52,6 +53,21 @@ class RecursoCreate(SQLModel):
 
         return values
 
+    @model_validator(mode='before')
+    def validate_url_format(cls, values):
+        """Valida formato da URL quando fornecida."""
+        url_externa = values.get("url_externa")
+        if url_externa:
+            try:
+                parsed = urlparse(url_externa)
+                if not parsed.scheme or not parsed.netloc:
+                    raise ValueError("url_externa deve ser uma URL válida com esquema (http/https) e domínio")
+                if parsed.scheme not in ['http', 'https']:
+                    raise ValueError("url_externa deve usar esquema http ou https")
+            except Exception:
+                raise ValueError("url_externa deve ser uma URL válida")
+        return values
+
 class RecursoUpdate(SQLModel):
     titulo: str | None = Field(None, max_length=255)
     descricao: str | None = Field(None, max_length=1000)
@@ -62,7 +78,7 @@ class RecursoUpdate(SQLModel):
     storage_key: str | None = Field(None, max_length=500)
     mime_type: str | None = Field(None, max_length=100)
     tamanho_bytes: int | None = None
-    url_externa: HttpUrl | None = None
+    url_externa: str | None = None
     """
     DTO de atualização para Recurso.
 
@@ -75,7 +91,7 @@ class RecursoUpdate(SQLModel):
     do anterior.
     """
 
-    @root_validator
+    @model_validator(mode='before')
     def validate_polymorphic_fields(cls, values):
         """
         Valida que apenas campos relevantes para o tipo de estrutura sejam fornecidos.
@@ -105,6 +121,21 @@ class RecursoUpdate(SQLModel):
         
         return values
 
+    @model_validator(mode='before')
+    def validate_url_format_update(cls, values):
+        """Valida formato da URL quando fornecida em updates."""
+        url_externa = values.get("url_externa")
+        if url_externa:
+            try:
+                parsed = urlparse(url_externa)
+                if not parsed.scheme or not parsed.netloc:
+                    raise ValueError("url_externa deve ser uma URL válida com esquema (http/https) e domínio")
+                if parsed.scheme not in ['http', 'https']:
+                    raise ValueError("url_externa deve usar esquema http ou https")
+            except Exception:
+                raise ValueError("url_externa deve ser uma URL válida")
+        return values
+
 class RecursoRead(SQLModel):
     id: int
     titulo: str
@@ -122,7 +153,7 @@ class RecursoRead(SQLModel):
     storage_key: str | None = None
     mime_type: str | None = None
     tamanho_bytes: int | None = None
-    url_externa: HttpUrl | None = None
+    url_externa: str | None = None
     
     criado_em: datetime
 
