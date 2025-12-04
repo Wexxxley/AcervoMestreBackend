@@ -21,15 +21,35 @@ class RecursoCreate(SQLModel):
     @root_validator
     def validate_required_fields_for_estrutura(cls, values):
         estrutura = values.get("estrutura")
+
+        nota_fields = {"conteudo_markdown"}
+        upload_fields = {"storage_key", "mime_type", "tamanho_bytes"}
+        url_fields = {"url_externa"}
+
         if estrutura == EstruturaRecurso.NOTA:
             if not values.get("conteudo_markdown"):
                 raise ValueError("campo 'conteudo_markdown' é obrigatório para estrutura NOTA")
+
+            for field in upload_fields | url_fields:
+                if values.get(field) is not None:
+                    raise ValueError(f"campo '{field}' não deve ser fornecido para estrutura NOTA")
+
         elif estrutura == EstruturaRecurso.UPLOAD:
             if not values.get("storage_key") or not values.get("mime_type") or values.get("tamanho_bytes") is None:
                 raise ValueError("campos 'storage_key', 'mime_type' e 'tamanho_bytes' são obrigatórios para estrutura UPLOAD")
+
+            for field in nota_fields | url_fields:
+                if values.get(field) is not None:
+                    raise ValueError(f"campo '{field}' não deve ser fornecido para estrutura UPLOAD")
+
         elif estrutura == EstruturaRecurso.URL:
             if not values.get("url_externa"):
                 raise ValueError("campo 'url_externa' é obrigatório para estrutura URL")
+
+            for field in nota_fields | upload_fields:
+                if values.get(field) is not None:
+                    raise ValueError(f"campo '{field}' não deve ser fornecido para estrutura URL")
+
         return values
 
 class RecursoUpdate(SQLModel):
@@ -54,6 +74,36 @@ class RecursoUpdate(SQLModel):
     recurso seria necessária uma operação de criação de novo recurso e remoção
     do anterior.
     """
+
+    @root_validator
+    def validate_polymorphic_fields(cls, values):
+        """
+        Valida que apenas campos relevantes para o tipo de estrutura sejam fornecidos.
+        Como estrutura não pode ser alterada no update, validamos apenas se campos
+        incompatíveis não estão sendo definidos juntos.
+        """
+        # Campos específicos por estrutura
+        nota_fields = {"conteudo_markdown"}
+        upload_fields = {"storage_key", "mime_type", "tamanho_bytes"}
+        url_fields = {"url_externa"}
+        
+        # Verificar se há mistura inválida de campos de diferentes estruturas
+        provided_fields = {k for k, v in values.items() if v is not None and k in (nota_fields | upload_fields | url_fields)}
+        
+        if not provided_fields:
+            return values  # Nenhum campo específico sendo atualizado
+        
+        # Determinar qual tipo de estrutura está sendo atualizado baseado nos campos fornecidos
+        if provided_fields & nota_fields and provided_fields & (upload_fields | url_fields):
+            raise ValueError("não é possível misturar campos de NOTA com campos de UPLOAD/URL no mesmo update")
+        
+        if provided_fields & upload_fields and provided_fields & (nota_fields | url_fields):
+            raise ValueError("não é possível misturar campos de UPLOAD com campos de NOTA/URL no mesmo update")
+        
+        if provided_fields & url_fields and provided_fields & (nota_fields | upload_fields):
+            raise ValueError("não é possível misturar campos de URL com campos de NOTA/UPLOAD no mesmo update")
+        
+        return values
 
 class RecursoRead(SQLModel):
     id: int
