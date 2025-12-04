@@ -20,7 +20,7 @@ class RecursoCreate(SQLModel):
     url_externa: str | None = None
 
     @model_validator(mode='before')
-    def validate_required_fields_for_estrutura(cls, values):
+    def validate_required_fields_for_estrutura(cls, values):  # type: ignore
         estrutura = values.get("estrutura")
 
         nota_fields = {"conteudo_markdown"}
@@ -54,7 +54,7 @@ class RecursoCreate(SQLModel):
         return values
 
     @model_validator(mode='before')
-    def validate_url_format(cls, values):
+    def validate_url_format(cls, values):  # type: ignore
         """Valida formato da URL quando fornecida."""
         url_externa = values.get("url_externa")
         if url_externa:
@@ -92,7 +92,7 @@ class RecursoUpdate(SQLModel):
     """
 
     @model_validator(mode='before')
-    def validate_polymorphic_fields(cls, values):
+    def validate_polymorphic_fields(cls, values):  # type: ignore
         """
         Valida que apenas campos relevantes para o tipo de estrutura sejam fornecidos.
         Como estrutura não pode ser alterada no update, validamos apenas se campos
@@ -122,7 +122,7 @@ class RecursoUpdate(SQLModel):
         return values
 
     @model_validator(mode='before')
-    def validate_url_format_update(cls, values):
+    def validate_url_format_update(cls, values):  # type: ignore
         """Valida formato da URL quando fornecida em updates."""
         url_externa = values.get("url_externa")
         if url_externa:
