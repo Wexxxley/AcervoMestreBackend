@@ -14,7 +14,7 @@ import os
 load_dotenv() 
 
 # IMPORTAR TODOS OS MODELS AQUI PARA QUE O SQLModel OS RECONHEÇA
-from models.user import User 
+from app.models.user import User
 
 config = context.config
 
