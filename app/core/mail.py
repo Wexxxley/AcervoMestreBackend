@@ -1,4 +1,3 @@
-# app/core/mail.py
 import os
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from pydantic import EmailStr
@@ -6,7 +5,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configuração que pega do .env
 conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
     MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
@@ -30,7 +28,8 @@ async def send_activation_email(email_to: EmailStr, token: str):
         <h2>Bem-vindo ao Acervo Mestre!</h2>
         <p>Um gestor criou sua conta.</p>
         <p>Para definir sua senha e liberar seu acesso, clique no botão abaixo:</p>
-        <a href="{activation_link}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ativar Conta</a>
+        <a href="{activation_link}" style="background-color: #4CAF50; color: white;
+        padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ativar Conta</a>
         <p>Ou use este token diretamente: <b>{token}</b></p>
         <br>
         <p><small>Este link expira em 24 horas.</small></p>
@@ -46,3 +45,6 @@ async def send_activation_email(email_to: EmailStr, token: str):
 
     fm = FastMail(conf)
     await fm.send_message(message)
+    
+    
+    

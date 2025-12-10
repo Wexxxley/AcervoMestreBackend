@@ -88,16 +88,9 @@ async def refresh_token(request: RefreshTokenRequest, session: AsyncSession = De
     )
     
 @auth_router.post("/activate_account", status_code=status.HTTP_200_OK)
-async def activate_account(
-    body: ActivateAccountRequest, 
-    session: AsyncSession = Depends(get_session)
-):
-    """Recebe o token do e-mail e a nova senha.
-    Valida o token, atualiza a senha e muda o status para Ativo."""
-    
+async def activate_account( body: ActivateAccountRequest,  session: AsyncSession = Depends(get_session)):  
     # 1. Decodificar Token
     payload = decode_token(body.token)
-    
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -105,13 +98,11 @@ async def activate_account(
         )
 
     # 2. Validar Tipo do Token
-    # Impede que alguém use um Access Token roubado para mudar a senha
     if payload.get("type") != "activation":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Token inválido (tipo incorreto)."
         )
-
     email = payload.get("sub")
 
     # 3. Buscar Usuário
@@ -122,7 +113,7 @@ async def activate_account(
     if not user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
 
-    # 4. Verificar se já não está ativo (Evitar reuso de link antigo)
+    # 4. Verificar se já não está ativo
     if user.status == Status.Ativo:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -132,8 +123,7 @@ async def activate_account(
     # 5. Atualizar Dados
     user.senha_hash = get_password_hash(body.new_password)
     user.status = Status.Ativo
-    
     session.add(user)
     await session.commit()
-    
     return {"message": "Conta ativada com sucesso! Você já pode fazer login."}
+

@@ -19,3 +19,6 @@ class RefreshTokenRequest(SQLModel):
 class ActivateAccountRequest(SQLModel):
     token: str
     new_password: str
+    
+    
+    

@@ -96,9 +96,7 @@ async def create_user(
     background_tasks: BackgroundTasks, 
     session: AsyncSession = Depends(get_session)
 ):
-    
-    user_dict = user_in.model_dump()
-    
+    user_dict = user_in.model_dump()  
     senha_plana = user_dict.pop("senha", None) 
     
     if senha_plana:
@@ -106,15 +104,13 @@ async def create_user(
         user_dict["senha_hash"] = get_password_hash(senha_plana)
         user_dict["status"] = Status.Ativo
     else:
-        # Fluxo 2: Convite (Sem senha)
+        # Fluxo 2: Gestor não definiu senha, usuário receberá email de ativação
         user_dict["senha_hash"] = None
         user_dict["status"] = Status.AguardandoAtivacao 
         
-        # 1. Gerar Token (Jwt específico para ativação)
-        token = create_activation_token(user_in.email)
+        token = create_activation_token(user_in.email) # Gerar Token (Jwt específico para ativação)
         
-        # 2. Agendar envio de email 
-        background_tasks.add_task(send_activation_email, user_in.email, token)
+        background_tasks.add_task(send_activation_email, user_in.email, token) # Agendar envio de email 
         
     if "avatar" not in user_dict:
         user_dict["avatar"] = None
@@ -173,3 +169,5 @@ async def delete_user(user_id: int, session: AsyncSession = Depends(get_session)
 async def get_me(current_user: User = Depends(get_current_user)):
     """Retorna os dados do usuário logado."""
     return current_user
+
+
