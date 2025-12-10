@@ -90,6 +90,18 @@ async def get_all_users(
         per_page=pagination.per_page,
         total_pages=total_pages
     )
+    
+@user_router.get("/me", response_model=UserRead)
+async def get_me(current_user: User = Depends(get_current_user)):
+    """Retorna os dados do usuário logado.
+
+    Parâmetros:
+    - `current_user` (User): usuário autenticado injetado pela dependência.
+
+    Retorna:
+    - `UserRead` com os dados do usuário atual.
+    """
+    return current_user
 
 @user_router.post("/create", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def create_user(
@@ -148,77 +160,7 @@ async def create_user(
         
     return db_user
 
-@user_router.patch("/patch/{user_id}", response_model=UserRead)
-async def update_user(user_id: int, user_input: UserUpdate, session: AsyncSession = Depends(get_session)):
-    """Atualiza dados parciais de um usuário.
-
-    Parâmetros:
-    - `user_id` (int): ID do usuário a ser atualizado.
-    - `user_input` (UserUpdate): objeto com os campos a serem alterados (campos opcionais).
-
-    Comportamento:
-    - Realiza atualização parcial (apenas campos enviados no payload).
-
-    Retorna:
-    - `UserRead` com os dados atualizados do usuário.
-
-    Erros possíveis:
-    - 404: usuário não encontrado.
-    """
-    statement = select(User).where(User.id == user_id)
-    result = await session.exec(statement)
-    db_user = result.first()
-
-    if not db_user:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
-
-    user_data = user_input.model_dump(exclude_unset=True)
-
-    for key, value in user_data.items():
-        setattr(db_user, key, value)
-
-    session.add(db_user)
-    await session.commit()
-    await session.refresh(db_user)
-    return db_user
-
-@user_router.delete("/delete/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(user_id: int, session: AsyncSession = Depends(get_session)):
-    """Remove ou desativa um usuário (Delete Híbrido).
-
-    Parâmetros:
-    - `user_id` (int): ID do usuário a ser excluído.
-
-    Comportamento:
-    - **Hard Delete:** Se o status for 'AguardandoAtivacao', remove o registro fisicamente do banco.
-    - **Soft Delete:** Para outros status, altera o status para 'Inativo' mantendo o histórico.
-
-    Retorna:
-    - Nada (HTTP 204 No Content).
-
-    Erros possíveis:
-    - 404: usuário não encontrado.
-    """
-    statement = select(User).where(User.id == user_id)
-    
-    result = await session.exec(statement)
-    user = result.first()
-
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
-
-    if user.status == Status.AguardandoAtivacao:
-        # HARD DELETE: Remove o registro fisicamente do banco
-        await session.delete(user)
-    else:
-        # SOFT DELETE: Apenas altera o status, mantendo o histórico
-        user.status = Status.Inativo
-        session.add(user)
-    
-    await session.commit()
-
-
-@user_router.post("/resend-invitation/{user_id}", status_code=status.HTTP_200_OK)
+@user_router.post("/resend_invitation/{user_id}", status_code=status.HTTP_200_OK)
 async def resend_invitation(
     user_id: int, 
     background_tasks: BackgroundTasks, 
@@ -256,14 +198,121 @@ async def resend_invitation(
 
     return {"message": "E-mail de convite reenviado com sucesso."}
 
-@user_router.get("/me", response_model=UserRead)
-async def get_me(current_user: User = Depends(get_current_user)):
-    """Retorna os dados do usuário logado.
+@user_router.patch("/patch/{user_id}", response_model=UserRead)
+async def update_user(user_id: int, user_input: UserUpdate, session: AsyncSession = Depends(get_session)):
+    """Atualiza dados parciais de um usuário.
 
     Parâmetros:
-    - `current_user` (User): usuário autenticado injetado pela dependência.
+    - `user_id` (int): ID do usuário a ser atualizado.
+    - `user_input` (UserUpdate): objeto com os campos a serem alterados (campos opcionais).
+
+    Comportamento:
+    - Realiza atualização parcial (apenas campos enviados no payload).
 
     Retorna:
-    - `UserRead` com os dados do usuário atual.
+    - `UserRead` com os dados atualizados do usuário.
+
+    Erros possíveis:
+    - 404: usuário não encontrado.
     """
-    return current_user
+    statement = select(User).where(User.id == user_id)
+    result = await session.exec(statement)
+    db_user = result.first()
+
+    if not db_user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    user_data = user_input.model_dump(exclude_unset=True)
+
+    for key, value in user_data.items():
+        setattr(db_user, key, value)
+
+    session.add(db_user)
+    await session.commit()
+    await session.refresh(db_user)
+    return db_user
+
+@user_router.patch("/restore/{user_id}", response_model=UserRead)
+async def restore_user(
+    user_id: int, 
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Restaura um usuário que foi excluído logicamente (Soft Delete).
+    Transição: Inativo -> Ativo.
+    
+    Parâmetros:
+    - `user_id` (int): ID do usuário.
+
+    Comportamento:
+    - Passa de 'Inativo' para 'Ativo'.
+
+    Retorna:
+    - `UserRead`.
+
+    Erros possíveis:
+    - 404: usuário não encontrado.
+    """
+    
+    user = await session.get(User, user_id)
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Usuário não encontrado."
+        )
+
+    if user.status != Status.Inativo:
+        if user.status == Status.Ativo:
+            detail_msg = "Este usuário já está ativo."
+        elif user.status == Status.AguardandoAtivacao:
+            detail_msg = "Este usuário nunca foi ativado. Reenvie o convite em vez de restaurar."
+            
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Ação inválida. {detail_msg}"
+        )
+
+    user.status = Status.Ativo
+    
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    
+    return user
+
+@user_router.delete("/delete/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(user_id: int, session: AsyncSession = Depends(get_session)):
+    """Remove ou desativa um usuário (Delete Híbrido).
+
+    Parâmetros:
+    - `user_id` (int): ID do usuário a ser excluído.
+
+    Comportamento:
+    - **Hard Delete:** Se o status for 'AguardandoAtivacao', remove o registro fisicamente do banco.
+    - **Soft Delete:** Para outros status, altera o status para 'Inativo' mantendo o histórico.
+
+    Retorna:
+    - Nada (HTTP 204 No Content).
+
+    Erros possíveis:
+    - 404: usuário não encontrado.
+    """
+    statement = select(User).where(User.id == user_id)
+    
+    result = await session.exec(statement)
+    user = result.first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    if user.status == Status.AguardandoAtivacao:
+        # HARD DELETE: Remove o registro fisicamente do banco
+        await session.delete(user)
+    else:
+        # SOFT DELETE: Apenas altera o status, mantendo o histórico
+        user.status = Status.Inativo
+        session.add(user)
+    
+    await session.commit()
+
