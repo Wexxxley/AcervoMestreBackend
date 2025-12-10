@@ -20,6 +20,17 @@ user_router = APIRouter(prefix="/users", tags=["Users"])
 
 @user_router.get("/get/{user_id}", response_model=UserRead)
 async def get_user_by_id(user_id: int, session: AsyncSession = Depends(get_session)):
+    """Busca um usuário pelo ID.
+
+    Parâmetros:
+    - `user_id` (int): ID do usuário a ser buscado.
+
+    Retorna:
+    - `UserRead` com os dados do usuário encontrado.
+
+    Erros possíveis:
+    - 404: caso o usuário não seja encontrado.
+    """
     statement = select(User).where(User.id == user_id)
     result = await session.exec(statement)
     user = result.first()
@@ -34,6 +45,19 @@ async def get_all_users(
     pagination: PaginationParams = Depends(), 
     somente_ativos: bool = Query(True, description="Filtra apenas usuários ativos"),
 ):
+    """Lista usuários com paginação e filtro.
+
+    Parâmetros:
+    - `pagination` (PaginationParams): parâmetros de página e itens por página.
+    - `somente_ativos` (bool): se True (padrão), retorna apenas usuários com status 'Ativo'.
+
+    Comportamento:
+    - Filtra usuários baseados no status (opcional).
+    - Calcula o total de páginas e itens para a resposta paginada.
+
+    Retorna:
+    - `PaginatedResponse[UserRead]` contendo a lista de usuários e metadados de paginação.
+    """
     # Montar a query base (sem paginação)
     statement = select(User)
     if somente_ativos:
@@ -73,6 +97,22 @@ async def create_user(
     background_tasks: BackgroundTasks, 
     session: AsyncSession = Depends(get_session)
 ):
+    """Cria um novo usuário (Cadastro ou Convite).
+
+    Parâmetros:
+    - `user_in` (UserCreate): dados do novo usuário.
+
+    Comportamento:
+    - **Fluxo 1 (Com Senha):** Se a senha for fornecida, cria o usuário como 'Ativo'.
+    - **Fluxo 2 (Sem Senha):** Se a senha não for fornecida, define status como 'AguardandoAtivacao', gera token e agenda envio de email de convite.
+    - Define avatar como None se não informado.
+
+    Retorna:
+    - `UserRead` com os dados do usuário criado (HTTP 201).
+
+    Erros possíveis:
+    - 400: se o email já estiver cadastrado.
+    """
     user_dict = user_in.model_dump()  
     senha_plana = user_dict.pop("senha", None) 
     
@@ -110,6 +150,21 @@ async def create_user(
 
 @user_router.patch("/patch/{user_id}", response_model=UserRead)
 async def update_user(user_id: int, user_input: UserUpdate, session: AsyncSession = Depends(get_session)):
+    """Atualiza dados parciais de um usuário.
+
+    Parâmetros:
+    - `user_id` (int): ID do usuário a ser atualizado.
+    - `user_input` (UserUpdate): objeto com os campos a serem alterados (campos opcionais).
+
+    Comportamento:
+    - Realiza atualização parcial (apenas campos enviados no payload).
+
+    Retorna:
+    - `UserRead` com os dados atualizados do usuário.
+
+    Erros possíveis:
+    - 404: usuário não encontrado.
+    """
     statement = select(User).where(User.id == user_id)
     result = await session.exec(statement)
     db_user = result.first()
@@ -129,6 +184,21 @@ async def update_user(user_id: int, user_input: UserUpdate, session: AsyncSessio
 
 @user_router.delete("/delete/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(user_id: int, session: AsyncSession = Depends(get_session)):
+    """Remove ou desativa um usuário (Delete Híbrido).
+
+    Parâmetros:
+    - `user_id` (int): ID do usuário a ser excluído.
+
+    Comportamento:
+    - **Hard Delete:** Se o status for 'AguardandoAtivacao', remove o registro fisicamente do banco.
+    - **Soft Delete:** Para outros status, altera o status para 'Inativo' mantendo o histórico.
+
+    Retorna:
+    - Nada (HTTP 204 No Content).
+
+    Erros possíveis:
+    - 404: usuário não encontrado.
+    """
     statement = select(User).where(User.id == user_id)
     
     result = await session.exec(statement)
@@ -147,31 +217,53 @@ async def delete_user(user_id: int, session: AsyncSession = Depends(get_session)
     
     await session.commit()
 
-@user_router.get("/me", response_model=UserRead)
-async def get_me(current_user: User = Depends(get_current_user)):
-    """Retorna os dados do usuário logado."""
-    return current_user
 
-@user_router.patch("/reactivate/{user_id}", response_model=UserRead)
-async def resending_invitation(
+@user_router.post("/resend-invitation/{user_id}", status_code=status.HTTP_200_OK)
+async def resend_invitation(
     user_id: int, 
+    background_tasks: BackgroundTasks, 
     session: AsyncSession = Depends(get_session),
 ):
-    statement = select(User).where(User.id == user_id)
-    result = await session.exec(statement)
-    user = result.first()
+    """Reenvia o email de convite com token de ativação.
 
+    Comportamento:
+    - Busca o usuário pelo ID.
+    - **Verificação:** Só permite o reenvio se o status for 'AguardandoAtivacao'.
+    - Gera um novo token e agenda o envio do e-mail.
+
+    Erros possíveis:
+    - 404: Usuário não encontrado.
+    - 400: Usuário já está ativo ou em outro status que não permite reenvio.
+    """
+    
+    user = await session.get(User, user_id)
+    
     if not user:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuário não encontrado."
+        )
 
     if user.status != Status.AguardandoAtivacao:
-        # Se estiver 'Pendente', o correto é reenviar convite, não ativar na força
-        raise HTTPException(status_code=400, detail="Apenas usuários inativos podem ser reativados")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Não é possível reenviar convite. O usuário está com status: {user.status}"
+        )
 
-    user.status = Status.Ativo
+    token = create_activation_token(user.email)
     
-    session.add(user)
-    await session.commit()
-    await session.refresh(user)
-    
-    return user
+    background_tasks.add_task(send_activation_email, user.email, token)
+
+    return {"message": "E-mail de convite reenviado com sucesso."}
+
+@user_router.get("/me", response_model=UserRead)
+async def get_me(current_user: User = Depends(get_current_user)):
+    """Retorna os dados do usuário logado.
+
+    Parâmetros:
+    - `current_user` (User): usuário autenticado injetado pela dependência.
+
+    Retorna:
+    - `UserRead` com os dados do usuário atual.
+    """
+    return current_user
