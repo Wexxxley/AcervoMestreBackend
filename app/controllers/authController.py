@@ -17,6 +17,7 @@ auth_router = APIRouter(prefix="/auth", tags=["Auth"])
 
 @auth_router.post("/login", response_model=TokenResponse)
 async def login(credentials: LoginRequest, session: AsyncSession = Depends(get_session)):
+    """Autentica um usuário e retorna tokens de acesso e refresh."""
     
     # 1. Busca o usuário pelo e-mail
     statement = select(User).where(User.email == credentials.email)
@@ -24,7 +25,7 @@ async def login(credentials: LoginRequest, session: AsyncSession = Depends(get_s
     user = result.first()
 
     # 2. Validações
-    if not user or not verify_password(credentials.password, user.senha_hash):
+    if not user or not user.senha_hash or not verify_password(credentials.password, user.senha_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="E-mail ou senha incorretos",
@@ -49,6 +50,7 @@ async def login(credentials: LoginRequest, session: AsyncSession = Depends(get_s
 
 @auth_router.post("/refresh_token", response_model=TokenResponse)
 async def refresh_token(request: RefreshTokenRequest, session: AsyncSession = Depends(get_session)):
+    """Gera um novo Access Token usando um Refresh Token válido."""
     
     # 1. Decodifica o Refresh Token recebido
     payload = decode_token(request.refresh_token)
@@ -89,6 +91,8 @@ async def refresh_token(request: RefreshTokenRequest, session: AsyncSession = De
     
 @auth_router.post("/activate_account", status_code=status.HTTP_200_OK)
 async def activate_account( body: ActivateAccountRequest,  session: AsyncSession = Depends(get_session)):  
+    """Ativa a conta de um usuário usando um token de ativação e define uma senha."""
+    
     # 1. Decodificar Token
     payload = decode_token(body.token)
     if not payload:
