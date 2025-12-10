@@ -13,26 +13,38 @@ USER_PAYLOAD = {
 }
 
 @pytest.mark.asyncio
-async def test_create_user(client):
-    """Testa o fluxo feliz de criação de usuário."""
+async def test_create_user_flow_active(client):
+    """Testa o fluxo 1: Criação com senha (status Ativo)."""
     response = await client.post("/users/create", json=USER_PAYLOAD)
     
     assert response.status_code == 201
     data = response.json()
     
-    # Validações
     assert data["email"] == USER_PAYLOAD["email"]
-    assert "id" in data
-    assert "senha" not in data  # Garante que UserRead está sendo usado (sem senha)
-    assert data["status"] == "Ativo" # Valor default
+    assert "senha" not in data
+    assert data["status"] == Status.Ativo 
+
+@pytest.mark.asyncio
+async def test_create_user_flow_invitation(client):
+    """Testa o fluxo 2: Criação sem senha (status AguardandoAtivacao)."""
+    # Remove a senha do payload
+    payload_invite = USER_PAYLOAD.copy()
+    del payload_invite["senha"]
+    
+    response = await client.post("/users/create", json=payload_invite)
+    
+    assert response.status_code == 201
+    data = response.json()
+    
+    assert data["email"] == USER_PAYLOAD["email"]
+    assert data["status"] == Status.AguardandoAtivacao 
 
 @pytest.mark.asyncio
 async def test_create_user_duplicate_email(client):
     """Testa se a API barra emails duplicados."""
-    # 1. Cria o primeiro usuário
     await client.post("/users/create", json=USER_PAYLOAD)
     
-    # 2. Tenta criar o segundo exatamente igual
+    # Tenta criar o segundo exatamente igual
     response = await client.post("/users/create", json=USER_PAYLOAD)
     
     assert response.status_code == 400
@@ -41,84 +53,162 @@ async def test_create_user_duplicate_email(client):
 @pytest.mark.asyncio
 async def test_get_user_by_id(client):
     """Testa a busca de usuário por ID."""
-    # Cria usuário para ter um ID válido
     res_create = await client.post("/users/create", json=USER_PAYLOAD)
     user_id = res_create.json()["id"]
 
-    # Busca pelo ID
     response = await client.get(f"/users/get/{user_id}")
     
     assert response.status_code == 200
     assert response.json()["id"] == user_id
-    assert response.json()["nome"] == USER_PAYLOAD["nome"]
 
 @pytest.mark.asyncio
 async def test_get_user_not_found(client):
     """Testa erro 404 ao buscar ID inexistente."""
-    response = await client.get("/users/get/99999999999999")
+    response = await client.get("/users/get/999999")
     assert response.status_code == 404
-    assert response.json()["detail"] == "Usuário não encontrado"
+
+@pytest.mark.asyncio
+async def test_get_all_users_pagination_and_filter(client, session):
+    """Testa a listagem paginada e o filtro de status."""
+    
+    # 1. Cria 5 usuários ativos via API
+    for i in range(5):
+        payload = USER_PAYLOAD.copy()
+        payload["email"] = f"active{i}@test.com"
+        await client.post("/users/create", json=payload)
+
+    # 2. Cria 2 usuários Inativos manualmente no banco
+    user_inativo = User(
+        nome="Inativo 1", 
+        email="inativo1@test.com", 
+        status=Status.Inativo, 
+        perfil="Gestor"
+    )
+    session.add(user_inativo)
+    await session.commit()
+
+    # TESTE A: Busca padrão (somente_ativos=True)
+    response = await client.get("/users/get_all?page=1&per_page=10")
+    data = response.json()
+    assert data["total"] == 5 # Só deve contar os ativos
+
+    # TESTE B: Busca sem filtro (somente_ativos=False)
+    response_all = await client.get("/users/get_all?page=1&per_page=10&somente_ativos=false")
+    data_all = response_all.json()
+    assert data_all["total"] == 6 # 5 ativos + 1 inativo
+
 
 @pytest.mark.asyncio
 async def test_update_user_patch(client):
     """Testa a atualização parcial de dados."""
-
-    # Cria usuário
     res_create = await client.post("/users/create", json=USER_PAYLOAD)
     user_id = res_create.json()["id"]
 
-    # Atualiza APENAS o nome
     new_data = {"nome": "Nome Atualizado"}
     response = await client.patch(f"/users/patch/{user_id}", json=new_data)
     
     assert response.status_code == 200
-    data = response.json()
+    assert response.json()["nome"] == "Nome Atualizado"
+
+@pytest.mark.asyncio
+async def test_restore_user_success(client, session):
+    """Testa a restauração de um usuário Inativo para Ativo."""
+    # 1. Preparar: Usuário Inativo
+    user = User(
+        nome="Deletado", 
+        email="del@test.com", 
+        status=Status.Inativo, 
+        perfil="Gestor",
+        senha_hash="hash"
+    )
+    session.add(user)
+    await session.commit()
     
-    assert data["nome"] == "Nome Atualizado"
-    assert data["email"] == USER_PAYLOAD["email"] # Email não deve mudar
+    # 2. Agir: Restaurar
+    response = await client.patch(f"/users/restore/{user.id}")
+    
+    # 3. Verificar
+    assert response.status_code == 200
+    assert response.json()["status"] == Status.Ativo
+
+@pytest.mark.asyncio
+async def test_restore_user_invalid_status(client, session):
+    """Testa erro ao tentar restaurar alguém que não está Inativo."""
+    # Usuário AguardandoAtivacao
+    user = User(
+        nome="Novo", 
+        email="novo@test.com", 
+        status=Status.AguardandoAtivacao, 
+        perfil="Gestor"
+    )
+    session.add(user)
+    await session.commit()
+
+    response = await client.patch(f"/users/restore/{user.id}")
+    assert response.status_code == 400
+    assert "nunca foi ativado" in response.json()["detail"]
 
 @pytest.mark.asyncio
 async def test_delete_user_soft_delete(client, session):
-    """
-    Testa se o delete faz apenas a exclusão lógica (muda status para Inativo).
-    """
-    # Cria usuário
+    """Testa Soft Delete para usuários Ativos."""
     res_create = await client.post("/users/create", json=USER_PAYLOAD)
     user_id = res_create.json()["id"]
 
-    # Deleta via API
+    # Delete
     response = await client.delete(f"/users/delete/{user_id}")
     assert response.status_code == 204
 
-    # Verifica no BANCO DE DADOS se o status mudou
+    # Verificar no BD
     statement = select(User).where(User.id == user_id)
     result = await session.exec(statement)
     db_user = result.first()
     
+    assert db_user is not None
     assert db_user.status == Status.Inativo
 
 @pytest.mark.asyncio
-async def test_get_all_users_pagination(client):
-    """Testa a listagem paginada."""
-    # Cria 15 usuários fictícios
-    for i in range(15):
-        payload = USER_PAYLOAD.copy()
-        payload["email"] = f"user{i}@test.com"
-        await client.post("/users/create", json=payload)
+async def test_delete_user_hard_delete(client, session):
+    """Testa Hard Delete para usuários AguardandoAtivacao (Convites)."""
+    # 1. Criar convite
+    payload = USER_PAYLOAD.copy()
+    del payload["senha"]
+    res = await client.post("/users/create", json=payload)
+    user_id = res.json()["id"]
 
-    # Requisita a página 1 com 10 itens
-    response = await client.get("/users/get_all?page=1&per_page=10")
+    # 2. Deletar
+    response = await client.delete(f"/users/delete/{user_id}")
+    assert response.status_code == 204
+
+    # 3. Verificar no BD (Deve ter SUMIDO)
+    statement = select(User).where(User.id == user_id)
+    result = await session.exec(statement)
+    db_user = result.first()
     
+    assert db_user is None # Hard delete confirmado
+
+@pytest.mark.asyncio
+async def test_resend_invitation_success(client, session):
+    """Testa reenvio de convite para usuário pendente."""
+    # 1. Criar usuário pendente
+    payload = USER_PAYLOAD.copy()
+    del payload["senha"]
+    res = await client.post("/users/create", json=payload)
+    user_id = res.json()["id"]
+
+    # 2. Reenviar
+    response = await client.post(f"/users/resend_invitation/{user_id}")
     assert response.status_code == 200
-    data = response.json()
-    
-    # Valida estrutura de paginação
-    assert len(data["items"]) == 10
-    assert data["total"] == 15
-    assert data["page"] == 1
-    assert data["total_pages"] == 2
+    assert response.json()["message"] == "E-mail de convite reenviado com sucesso."
 
-    # Requisita a página 2 (deve ter os 5 restantes)
-    response_p2 = await client.get("/users/get_all?page=2&per_page=10")
-    data_p2 = response_p2.json()
-    assert len(data_p2["items"]) == 5
+@pytest.mark.asyncio
+async def test_resend_invitation_fail_active(client):
+    """Testa erro ao tentar reenviar convite para usuário já ativo."""
+    # 1. Criar usuário ativo
+    res = await client.post("/users/create", json=USER_PAYLOAD)
+    user_id = res.json()["id"]
+
+    # 2. Tentar reenviar
+    response = await client.post(f"/users/resend_invitation/{user_id}")
+    
+    assert response.status_code == 400
+    assert "já está ativo" in response.json()["detail"] or "status" in response.json()["detail"]

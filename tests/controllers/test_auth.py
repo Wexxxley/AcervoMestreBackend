@@ -2,13 +2,12 @@ import pytest
 import jwt
 import os
 from dotenv import load_dotenv
-from datetime import datetime, timedelta, timezone, date # <--- Adicionado date aqui
+from datetime import datetime, timedelta, timezone, date 
 from sqlmodel import select
 from app.models.user import User
 from app.enums.status import Status
 from app.core.security import get_password_hash
 
-# Carrega as variáveis do arquivo .env
 load_dotenv()
 
 SECRET_KEY = os.getenv("SECRET_KEY", "secret_key_exemplo_para_testes") 
@@ -31,7 +30,7 @@ async def test_login_success(client, session):
         senha_hash=hashed_password,
         status=Status.Ativo,
         nome="Tester Auth",
-        data_nascimento=date(2000, 1, 1), # <--- CORRIGIDO: Usar objeto date(), não string
+        data_nascimento=date(2000, 1, 1),
         perfil="Gestor" 
     )
     session.add(user)
@@ -56,7 +55,7 @@ async def test_login_wrong_credentials(client, session):
         senha_hash=hashed_password,
         status=Status.Ativo,
         nome="Tester Fail",
-        perfil="Gestor" # <--- CORRIGIDO: Campo obrigatório adicionado
+        perfil="Gestor" 
     )
     session.add(user)
     await session.commit()
@@ -86,7 +85,7 @@ async def test_login_inactive_user(client, session):
         senha_hash=hashed_password,
         status=Status.Inativo,
         nome="Tester Inativo",
-        perfil="Gestor" # <--- CORRIGIDO: Campo obrigatório adicionado
+        perfil="Gestor" 
     )
     session.add(user)
     await session.commit()
@@ -106,7 +105,7 @@ async def test_login_pending_user(client, session):
         senha_hash=None, 
         status=Status.AguardandoAtivacao,
         nome="Tester Pendente",
-        perfil="Gestor" # <--- CORRIGIDO: Campo obrigatório adicionado
+        perfil="Gestor"
     )
     session.add(user)
     await session.commit()
@@ -126,7 +125,7 @@ async def test_refresh_token_flow(client, session):
         senha_hash=hashed_password,
         status=Status.Ativo,
         nome="Tester Refresh",
-        perfil="Gestor" # <--- CORRIGIDO: Campo obrigatório adicionado
+        perfil="Gestor" 
     )
     session.add(user)
     await session.commit()
@@ -155,7 +154,7 @@ async def test_activate_account_success(client, session):
         status=Status.AguardandoAtivacao,
         nome="Tester Convite",
         senha_hash=None,
-        perfil="Professor" # <--- CORRIGIDO: Campo obrigatório adicionado
+        perfil="Professor"
     )
     session.add(user)
     await session.commit()
