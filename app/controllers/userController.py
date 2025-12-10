@@ -11,6 +11,10 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import Query
 from app.utils.pagination import PaginationParams
 from app.utils.pagination import PaginatedResponse
+from app.core.security import get_current_user 
+from fastapi import BackgroundTasks 
+from app.core.mail import send_activation_email
+from app.core.security import create_activation_token
 
 user_router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -23,7 +27,6 @@ async def get_user_by_id(user_id: int, session: AsyncSession = Depends(get_sessi
     if not user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     return user
-
 
 @user_router.get("/get_all", response_model=PaginatedResponse[UserRead])
 async def get_all_users(
@@ -64,12 +67,58 @@ async def get_all_users(
         total_pages=total_pages
     )
 
+
+# @user_router.post("/create", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+# async def create_user(user_in: UserCreate, session: AsyncSession = Depends(get_session)):
+    
+#     user_dict = user_in.model_dump()
+#     senha_plana = user_dict.pop("senha")
+#     user_dict["senha_hash"] = get_password_hash(senha_plana)
+#     db_user = User.model_validate(user_dict)
+    
+#     session.add(db_user)
+    
+#     try:
+#         await session.commit()
+#         await session.refresh(db_user)
+#     except IntegrityError:
+#         await session.rollback() 
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST, 
+#             detail="Já existe um usuário cadastrado com este email."
+#         )
+        
+#     return db_user
+
 @user_router.post("/create", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-async def create_user(user_in: UserCreate, session: AsyncSession = Depends(get_session)):
+async def create_user(
+    user_in: UserCreate, 
+    background_tasks: BackgroundTasks, 
+    session: AsyncSession = Depends(get_session)
+):
     
     user_dict = user_in.model_dump()
-    senha_plana = user_dict.pop("senha")
-    user_dict["senha_hash"] = get_password_hash(senha_plana)
+    
+    senha_plana = user_dict.pop("senha", None) 
+    
+    if senha_plana:
+        # Fluxo 1: Gestor definiu a senha manualmente
+        user_dict["senha_hash"] = get_password_hash(senha_plana)
+        user_dict["status"] = Status.Ativo
+    else:
+        # Fluxo 2: Convite (Sem senha)
+        user_dict["senha_hash"] = None
+        user_dict["status"] = Status.AguardandoAtivacao 
+        
+        # 1. Gerar Token (Jwt específico para ativação)
+        token = create_activation_token(user_in.email)
+        
+        # 2. Agendar envio de email 
+        background_tasks.add_task(send_activation_email, user_in.email, token)
+        
+    if "avatar" not in user_dict:
+        user_dict["avatar"] = None
+
     db_user = User.model_validate(user_dict)
     
     session.add(db_user)
@@ -114,9 +163,13 @@ async def delete_user(user_id: int, session: AsyncSession = Depends(get_session)
 
     if not user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-
   
     user.status = Status.Inativo
     
     session.add(user) 
     await session.commit()
+
+@user_router.get("/me", response_model=UserRead)
+async def get_me(current_user: User = Depends(get_current_user)):
+    """Retorna os dados do usuário logado."""
+    return current_user

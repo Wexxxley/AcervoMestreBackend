@@ -6,10 +6,9 @@ from app.enums.status import Status
 class UserCreate(SQLModel):
     nome: str
     email: str
-    senha: str  # Recebe a senha pura, hash é gerado na lógica
     perfil: Perfil
-    status: Status = Status.Ativo
-    path_img: str | None = None
+    senha: str | None = None  # Opcional (para fluxo de convite)    
+    path_img: str | None = None 
     data_nascimento: date | None = None
 
 class UserUpdate(SQLModel):
