@@ -114,3 +114,20 @@ async def get_current_user(
         
     return user
 
+class RoleChecker:
+    """Dependência que verifica se o usuário autenticado possui um dos perfis permitidos.
+    Uso: Depends(RoleChecker(["Gestor", "Professor"]))"""
+    
+    def __init__(self, allowed_roles: list[str]):
+        self.allowed_roles = allowed_roles
+
+    async def __call__(self, user: User = Depends(get_current_user)) -> User:
+        """Executado pelo FastAPI. Recebe o usuário validado por get_current_user."""
+        
+        if user.perfil not in self.allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Você não tem permissão para realizar esta ação (Acesso negado).",
+            )
+        
+        return user
