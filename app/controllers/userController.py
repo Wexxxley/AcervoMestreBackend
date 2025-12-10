@@ -6,7 +6,7 @@ from app.dtos.userDtos import UserCreate, UserRead, UserUpdate
 from app.enums.status import Status
 from app.models.user import User  
 from app.core.database import get_session 
-from app.core.security import get_password_hash
+from app.core.security import RoleChecker, get_password_hash
 from sqlalchemy.exc import IntegrityError 
 from fastapi import Query
 from app.utils.pagination import PaginationParams
@@ -18,7 +18,11 @@ from app.core.security import create_activation_token
 
 user_router = APIRouter(prefix="/users", tags=["Users"])
 
-@user_router.get("/get/{user_id}", response_model=UserRead)
+allow_staff = RoleChecker(["Professor", "Cordenador", "Gestor"])
+allow_management = RoleChecker(["Cordenador", "Gestor"])
+allow_gestor = RoleChecker(["Gestor"])
+
+@user_router.get("/get/{user_id}", response_model=UserRead, dependencies=[Depends(allow_staff)])
 async def get_user_by_id(user_id: int, session: AsyncSession = Depends(get_session)):
     """Busca um usuário pelo ID.
 
@@ -30,6 +34,9 @@ async def get_user_by_id(user_id: int, session: AsyncSession = Depends(get_sessi
 
     Erros possíveis:
     - 404: caso o usuário não seja encontrado.
+    
+    Permissões:
+    - Apenas usuários da equipe: 'Professor', 'Cordenador' ou 'Gestor'
     """
     statement = select(User).where(User.id == user_id)
     result = await session.exec(statement)
@@ -39,7 +46,7 @@ async def get_user_by_id(user_id: int, session: AsyncSession = Depends(get_sessi
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     return user
 
-@user_router.get("/get_all", response_model=PaginatedResponse[UserRead])
+@user_router.get("/get_all", response_model=PaginatedResponse[UserRead], dependencies=[Depends(allow_staff)])
 async def get_all_users(
     session: AsyncSession = Depends(get_session),
     pagination: PaginationParams = Depends(), 
@@ -57,6 +64,9 @@ async def get_all_users(
 
     Retorna:
     - `PaginatedResponse[UserRead]` contendo a lista de usuários e metadados de paginação.
+    
+    Permissões:
+    - Apenas usuários da equipe: 'Professor', 'Cordenador' ou 'Gestor'
     """
     # Montar a query base (sem paginação)
     statement = select(User)
@@ -100,10 +110,13 @@ async def get_me(current_user: User = Depends(get_current_user)):
 
     Retorna:
     - `UserRead` com os dados do usuário atual.
+    
+    Permissões:
+    - Qualquer usuário autenticado pode acessar esta rota.
     """
     return current_user
 
-@user_router.post("/create", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+@user_router.post("/create", response_model=UserRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(allow_management)])
 async def create_user(
     user_in: UserCreate, 
     background_tasks: BackgroundTasks, 
@@ -124,6 +137,9 @@ async def create_user(
 
     Erros possíveis:
     - 400: se o email já estiver cadastrado.
+    
+    Permissões:
+    - Apenas usuários da gerencia: 'Cordenador' ou 'Gestor'
     """
     user_dict = user_in.model_dump()  
     senha_plana = user_dict.pop("senha", None) 
@@ -160,7 +176,7 @@ async def create_user(
         
     return db_user
 
-@user_router.post("/resend_invitation/{user_id}", status_code=status.HTTP_200_OK)
+@user_router.post("/resend_invitation/{user_id}", status_code=status.HTTP_200_OK, dependencies=[Depends(allow_management)])
 async def resend_invitation(
     user_id: int, 
     background_tasks: BackgroundTasks, 
@@ -176,6 +192,9 @@ async def resend_invitation(
     Erros possíveis:
     - 404: Usuário não encontrado.
     - 400: Usuário já está ativo ou em outro status que não permite reenvio.
+    
+    Permissões:
+    - Apenas usuários da gerencia: 'Cordenador' ou 'Gestor'
     """
     
     user = await session.get(User, user_id)
@@ -198,7 +217,7 @@ async def resend_invitation(
 
     return {"message": "E-mail de convite reenviado com sucesso."}
 
-@user_router.patch("/patch/{user_id}", response_model=UserRead)
+@user_router.patch("/patch/{user_id}", response_model=UserRead, dependencies=[Depends(allow_management)])
 async def update_user(user_id: int, user_input: UserUpdate, session: AsyncSession = Depends(get_session)):
     """Atualiza dados parciais de um usuário.
 
@@ -214,6 +233,9 @@ async def update_user(user_id: int, user_input: UserUpdate, session: AsyncSessio
 
     Erros possíveis:
     - 404: usuário não encontrado.
+    
+    Permissões:
+    - Apenas usuários da gerencia: 'Cordenador' ou 'Gestor'
     """
     statement = select(User).where(User.id == user_id)
     result = await session.exec(statement)
@@ -232,7 +254,7 @@ async def update_user(user_id: int, user_input: UserUpdate, session: AsyncSessio
     await session.refresh(db_user)
     return db_user
 
-@user_router.patch("/restore/{user_id}", response_model=UserRead)
+@user_router.patch("/restore/{user_id}", response_model=UserRead, dependencies=[Depends(allow_gestor)])
 async def restore_user(
     user_id: int, 
     session: AsyncSession = Depends(get_session)
@@ -252,6 +274,9 @@ async def restore_user(
 
     Erros possíveis:
     - 404: usuário não encontrado.
+    
+    Permissões:
+    - Apenas 'Gestor'
     """
     
     user = await session.get(User, user_id)
@@ -281,7 +306,7 @@ async def restore_user(
     
     return user
 
-@user_router.delete("/delete/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@user_router.delete("/delete/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(allow_gestor)])
 async def delete_user(user_id: int, session: AsyncSession = Depends(get_session)):
     """Remove ou desativa um usuário (Delete Híbrido).
 
@@ -297,6 +322,9 @@ async def delete_user(user_id: int, session: AsyncSession = Depends(get_session)
 
     Erros possíveis:
     - 404: usuário não encontrado.
+    
+    Permissões:
+    - Apenas 'Gestor'
     """
     statement = select(User).where(User.id == user_id)
     
