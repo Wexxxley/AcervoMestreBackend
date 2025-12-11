@@ -20,7 +20,21 @@ auth_router = APIRouter(prefix="/auth", tags=["Auth"])
 
 @auth_router.post("/login", response_model=TokenResponse)
 async def login(credentials: LoginRequest, session: AsyncSession = Depends(get_session)):
-    """Autentica um usuário e retorna tokens de acesso e refresh."""
+    """Autentica um usuário e retorna tokens de acesso e refresh.
+
+    Parâmetros:
+    - `credentials` (LoginRequest): Email e senha do usuário.
+
+    Retorna:
+    - `TokenResponse`: Access Token (curta duração) e Refresh Token (longa duração).
+
+    Erros possíveis:
+    - 401: E-mail ou senha incorretos.
+    - 403: Usuário inativo ou pendente de ativação.
+
+    Permissões:
+    - Público (Qualquer usuário).
+    """
     
     # 1. Busca o usuário pelo e-mail
     statement = select(User).where(User.email == credentials.email)
@@ -53,7 +67,21 @@ async def login(credentials: LoginRequest, session: AsyncSession = Depends(get_s
 
 @auth_router.post("/refresh_token", response_model=TokenResponse)
 async def refresh_token(request: RefreshTokenRequest, session: AsyncSession = Depends(get_session)):
-    """Gera um novo Access Token usando um Refresh Token válido."""
+    """Gera um novo Access Token usando um Refresh Token válido.
+
+    Parâmetros:
+    - `request` (RefreshTokenRequest): O refresh token atual.
+
+    Retorna:
+    - `TokenResponse`: Novo Access Token e o Refresh Token original (ou rotacionado).
+
+    Erros possíveis:
+    - 401: Token inválido, expirado, ou tipo incorreto.
+    - 401: Usuário associado ao token não encontrado ou inativo.
+
+    Permissões:
+    - Público (Validado pelo token).
+    """
     
     # 1. Decodifica o Refresh Token recebido
     payload = decode_token(request.refresh_token)
@@ -94,7 +122,21 @@ async def refresh_token(request: RefreshTokenRequest, session: AsyncSession = De
     
 @auth_router.post("/activate_account", status_code=status.HTTP_200_OK)
 async def activate_account( body: ActivateAccountRequest,  session: AsyncSession = Depends(get_session)):  
-    """Ativa a conta de um usuário usando um token de ativação e define uma senha."""
+    """Ativa a conta de um usuário e define a senha inicial.
+
+    Parâmetros:
+    - `body` (ActivateAccountRequest): Token de ativação e nova senha.
+
+    Retorna:
+    - Mensagem de sucesso.
+
+    Erros possíveis:
+    - 400: Token inválido, expirado ou usuário já ativo.
+    - 404: Usuário não encontrado.
+
+    Permissões:
+    - Público (Validado pelo token de ativação).
+    """
     
     # 1. Decodificar Token
     payload = decode_token(body.token)
@@ -142,13 +184,20 @@ async def forgot_password(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session)
 ):
-    """
-    Solicita um link para redefinição de senha.
-    
+    """Solicita um link para redefinição de senha.
+
+    Parâmetros:
+    - E-mail do usuário.
+
+    Retorna:
+    - Mensagem genérica de confirmação.
+
     Comportamento:
     - Verifica se o e-mail existe e se o usuário está ativo.
-    - Se existir, gera um token e envia por e-mail em background.
-    - Sempre retorna 200 OK.
+    - Se existir, gera um token e agenda o envio do e-mail em background.
+
+    Permissões:
+    - Público.
     """
     
     statement = select(User).where(User.email == email)
@@ -169,8 +218,20 @@ async def reset_password(
     body: ResetPasswordRequest, 
     session: AsyncSession = Depends(get_session)
 ):
-    """
-    Redefine a senha do usuário utilizando um token válido recebido por e-mail.
+    """Redefine a senha do usuário utilizando um token.
+
+    Parâmetros:
+    - `body` (ResetPasswordRequest): Token de reset e a nova senha.
+
+    Retorna:
+    - Mensagem de sucesso.
+
+    Erros possíveis:
+    - 400: Token inválido, expirado ou tipo incorreto.
+    - 404: Usuário associado ao token não encontrado.
+
+    Permissões:
+    - Público (Validado pelo token de reset).
     """
     
     payload = decode_token(body.token)    
