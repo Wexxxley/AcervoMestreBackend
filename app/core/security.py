@@ -114,6 +114,17 @@ async def get_current_user(
         
     return user
 
+def create_reset_password_token(email: str) -> str:
+    """Cria um token JWT específico para redefinição de senha."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES) 
+    to_encode = {
+        "sub": email,
+        "exp": expire,
+        "type": "reset_password" 
+    }
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
 class RoleChecker:
     """Dependência que verifica se o usuário autenticado possui um dos perfis permitidos.
     Uso: Depends(RoleChecker(["Gestor", "Professor"]))"""

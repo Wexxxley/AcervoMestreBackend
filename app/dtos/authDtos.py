@@ -1,8 +1,9 @@
+from pydantic import EmailStr
 from sqlmodel import SQLModel
 
 # usuário envia para logar
 class LoginRequest(SQLModel):
-    email: str
+    email: EmailStr
     password: str
 
 # sistema responde após login/refresh

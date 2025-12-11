@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from pydantic import EmailStr
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.database import get_session
+from app.core.mail import send_reset_password_email
 from app.models.user import User
 from app.dtos.authDtos import LoginRequest, TokenResponse, RefreshTokenRequest, ActivateAccountRequest
 from app.core.security import (
+    create_reset_password_token,
     get_password_hash,
     verify_password, 
     create_access_token, 
@@ -131,3 +134,32 @@ async def activate_account( body: ActivateAccountRequest,  session: AsyncSession
     await session.commit()
     return {"message": "Conta ativada com sucesso! Você já pode fazer login."}
 
+
+
+@auth_router.post("/forgot_password", status_code=status.HTTP_200_OK)
+async def forgot_password(
+    email: EmailStr,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Solicita um link para redefinição de senha.
+    
+    Comportamento:
+    - Verifica se o e-mail existe e se o usuário está ativo.
+    - Se existir, gera um token e envia por e-mail em background.
+    - Sempre retorna 200 OK.
+    """
+    
+    statement = select(User).where(User.email == email)
+    result = await session.exec(statement)
+    user = result.first()
+
+    # Só envia se o usuário existir e estiver ativo
+    if user and user.status == Status.Ativo:
+        token = create_reset_password_token(user.email)
+        
+        # Agenda o envio do e-mail
+        background_tasks.add_task(send_reset_password_email, user.email, token)
+
+    return {"message": "Se o e-mail estiver cadastrado, você receberá um link para redefinir sua senha."}
