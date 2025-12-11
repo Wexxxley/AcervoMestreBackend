@@ -5,7 +5,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.database import get_session
 from app.core.mail import send_reset_password_email
 from app.models.user import User
-from app.dtos.authDtos import LoginRequest, TokenResponse, RefreshTokenRequest, ActivateAccountRequest
+from app.dtos.authDtos import LoginRequest, ResetPasswordRequest, TokenResponse, RefreshTokenRequest, ActivateAccountRequest
 from app.core.security import (
     create_reset_password_token,
     get_password_hash,
@@ -163,3 +163,45 @@ async def forgot_password(
         background_tasks.add_task(send_reset_password_email, user.email, token)
 
     return {"message": "Se o e-mail estiver cadastrado, você receberá um link para redefinir sua senha."}
+
+@auth_router.post("/reset_password", status_code=status.HTTP_200_OK)
+async def reset_password(
+    body: ResetPasswordRequest, 
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Redefine a senha do usuário utilizando um token válido recebido por e-mail.
+    """
+    
+    payload = decode_token(body.token)    
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Token inválido ou expirado."
+        )
+
+    # Verifica se o token é do tipo 'reset_password'
+    if payload.get("type") != "reset_password":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Token inválido para esta operação."
+        )
+
+    email = payload.get("sub")
+
+    statement = select(User).where(User.email == email)
+    result = await session.exec(statement)
+    user = result.first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Usuário associado ao token não encontrado."
+        )
+
+    user.senha_hash = get_password_hash(body.new_password)
+    
+    session.add(user)
+    await session.commit()
+    
+    return {"message": "Senha alterada com sucesso! Você já pode fazer login com a nova senha."}
