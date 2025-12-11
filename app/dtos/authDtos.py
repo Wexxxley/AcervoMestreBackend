@@ -20,7 +20,12 @@ class RefreshTokenRequest(SQLModel):
 class ActivateAccountRequest(SQLModel):
     token: str
     new_password: str
-    
+
+# usuário envia para pedir reset de senha
+class ForgotPasswordRequest(SQLModel):
+    email: EmailStr    
+
+# usuário envia para resetar a senha
 class ResetPasswordRequest(SQLModel):
     token: str
     new_password: str

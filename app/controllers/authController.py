@@ -5,7 +5,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.database import get_session
 from app.core.mail import send_reset_password_email
 from app.models.user import User
-from app.dtos.authDtos import LoginRequest, ResetPasswordRequest, TokenResponse, RefreshTokenRequest, ActivateAccountRequest
+from app.dtos.authDtos import ForgotPasswordRequest, LoginRequest, ResetPasswordRequest, TokenResponse, RefreshTokenRequest, ActivateAccountRequest
 from app.core.security import (
     create_reset_password_token,
     get_password_hash,
@@ -180,7 +180,7 @@ async def activate_account( body: ActivateAccountRequest,  session: AsyncSession
 
 @auth_router.post("/forgot_password", status_code=status.HTTP_200_OK)
 async def forgot_password(
-    email: EmailStr,
+    body: ForgotPasswordRequest,
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session)
 ):
@@ -200,7 +200,7 @@ async def forgot_password(
     - Público.
     """
     
-    statement = select(User).where(User.email == email)
+    statement = select(User).where(User.email == body.email)
     result = await session.exec(statement)
     user = result.first()
 
@@ -241,7 +241,7 @@ async def reset_password(
             detail="Token inválido ou expirado."
         )
 
-    # Verifica se o token é do tipo 'reset_password'
+    # Verifica se o token é do tipo reset_password
     if payload.get("type") != "reset_password":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
