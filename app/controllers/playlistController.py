@@ -198,8 +198,6 @@ async def editar_playlist(
         )
     
     if data.titulo is not None:
-        if not data.titulo.strip():
-            raise HTTPException(status_code=400, detail="Título não pode ser vazio")
         playlist.titulo = data.titulo.strip()
     
     if data.descricao is not None:
