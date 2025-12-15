@@ -1,5 +1,5 @@
 from typing import Generic, TypeVar, List
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 from fastapi import Query
 
 T = TypeVar('T') 
@@ -13,10 +13,11 @@ class PaginatedResponse(BaseModel, Generic[T]):
     total: int # Total number of items across all pages
     page: int # Current page number
     per_page: int # Number of items per page
-    total_pages: int # Total number of pages
 
+    @computed_field
     @property
     def total_pages(self) -> int:
+        """Total number of pages (computed from total and per_page)"""
         if self.per_page == 0:
             return 0
         return (self.total + self.per_page - 1) // self.per_page
