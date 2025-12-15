@@ -158,3 +158,10 @@ class RecursoRead(SQLModel):
     criado_em: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RecursoDownloadResponse(SQLModel):
+    """Resposta para operação de download de recurso."""
+    message: str
+    download_url: str | None = None
+    downloads: int

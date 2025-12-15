@@ -3,6 +3,7 @@ fastapi
 uvicorn[standard]
 python-dotenv
 pydantic-settings
+python-multipart
 
 # --- Banco de Dados ---
 sqlmodel
@@ -12,6 +13,9 @@ asyncpg
 # --- Autenticação ---
 pwdlib[argon2]
 pyjwt
+
+# --- Object Storage (MinIO/S3) ---
+boto3
 
 # --- Testes ---
 pytest
