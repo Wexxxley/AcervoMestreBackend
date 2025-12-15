@@ -1,4 +1,4 @@
-from sqlmodel import SQLModel
+from sqlmodel import SQLModel, Field
 from datetime import datetime
 from typing import Optional
 from app.dtos.recursoDtos import RecursoRead
@@ -13,13 +13,13 @@ class PlaylistRecursoRead(SQLModel):
 
 class PlaylistCreate(SQLModel):
     """DTO para criar uma nova playlist."""
-    titulo: str
+    titulo: str = Field(..., min_length=1, max_length=255)
     descricao: str | None = None
 
 
 class PlaylistUpdate(SQLModel):
     """DTO para atualizar uma playlist."""
-    titulo: str | None = None
+    titulo: str | None = Field(default=None, min_length=1, max_length=255)
     descricao: str | None = None
 
 
