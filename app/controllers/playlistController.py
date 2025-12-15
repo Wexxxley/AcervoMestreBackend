@@ -190,6 +190,12 @@ async def editar_playlist(
     """
     playlist = await verificar_playlist_existe(playlist_id, session)
     await verificar_autoria(playlist, current_user)
+    # Validar que ao menos um campo foi enviado para atualização
+    if data.titulo is None and data.descricao is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Pelo menos um campo (titulo ou descricao) deve ser informado para atualização"
+        )
     
     if data.titulo is not None:
         if not data.titulo.strip():
