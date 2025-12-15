@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 from sqlmodel import SQLModel, Field, Relationship
-from sqlalchemy import ForeignKeyConstraint, Index, Column, ForeignKey
+from sqlalchemy import ForeignKeyConstraint, Index, Column, ForeignKey, UniqueConstraint
 
 if TYPE_CHECKING:
     from app.models.playlist import Playlist
@@ -31,4 +31,5 @@ class PlaylistRecurso(SQLModel, table=True):
         Index('idx_playlist_recurso_playlist_id', 'playlist_id'),
         Index('idx_playlist_recurso_recurso_id', 'recurso_id'),
         Index('idx_playlist_recurso_ordem', 'playlist_id', 'ordem'),
+        UniqueConstraint('playlist_id', 'ordem', name='uq_playlist_ordem_per_playlist'),
     )
