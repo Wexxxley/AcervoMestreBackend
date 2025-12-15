@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from typing import Optional
@@ -131,7 +132,8 @@ async def listar_playlists(
     Listar playlists (com opção de filtro por autor).
     Retorna lista simplificada sem detalhe dos recursos.
     """
-    statement = select(Playlist)
+    # Usar eager loading para evitar N+1 ao carregar os recursos das playlists
+    statement = select(Playlist).options(selectinload(Playlist.recursos))
     
     if autor_id:
         statement = statement.where(Playlist.autor_id == autor_id)
@@ -154,7 +156,7 @@ async def listar_playlists(
     # Enriquecer com quantidade de recursos
     playlists_com_quantidade = []
     for playlist in playlists:
-        await session.refresh(playlist)  # Garante relacionamentos
+        # `recursos` já foi carregado por selectinload; evita N+1 queries
         quantidade = len(playlist.recursos) if playlist.recursos else 0
         
         playlist_list = PlaylistListRead(
