@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from typing import Optional
@@ -266,19 +267,29 @@ async def adicionar_recurso_playlist(
     # Obter a próxima ordem (última ordem + 1)
     statement_ordem = select(func.max(PlaylistRecurso.ordem)).where(
         PlaylistRecurso.playlist_id == playlist_id
-    )
+    ).with_for_update()
     resultado_ordem = await session.exec(statement_ordem)
     proxima_ordem = (resultado_ordem.one() or -1) + 1
-    
+
     # Criar associação
     playlist_recurso = PlaylistRecurso(
         playlist_id=playlist_id,
         recurso_id=data.recurso_id,
         ordem=proxima_ordem,
     )
-    
+
     session.add(playlist_recurso)
-    await session.commit()
+
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Possível colisão de ordem em alta concorrência; refaz cálculo e tenta novamente
+        await session.rollback()
+        resultado_ordem = await session.exec(statement_ordem)
+        proxima_ordem = (resultado_ordem.one() or -1) + 1
+        playlist_recurso.ordem = proxima_ordem
+        session.add(playlist_recurso)
+        await session.commit()
     
     return {"message": "Recurso adicionado à playlist com sucesso", "ordem": proxima_ordem}
 
