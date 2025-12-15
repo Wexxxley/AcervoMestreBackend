@@ -93,7 +93,7 @@ async def criar_playlist(
     
     nova_playlist = Playlist(
         titulo=data.titulo.strip(),
-        descricao=data.descricao.strip() if data.descricao else None,
+        descricao=data.descricao.strip() if data.descricao and data.descricao.strip() else None,
         autor_id=current_user.id,
     )
     
@@ -195,7 +195,7 @@ async def editar_playlist(
         playlist.titulo = data.titulo.strip()
     
     if data.descricao is not None:
-        playlist.descricao = data.descricao.strip() if data.descricao else None
+        playlist.descricao = data.descricao.strip() if data.descricao.strip() else None
     
     session.add(playlist)
     await session.commit()
