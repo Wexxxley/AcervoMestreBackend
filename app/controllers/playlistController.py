@@ -90,8 +90,7 @@ async def criar_playlist(
     if not current_user:
         raise HTTPException(status_code=401, detail="Autenticação necessária")
     
-    if not data.titulo or not data.titulo.strip():
-        raise HTTPException(status_code=400, detail="Título é obrigatório")
+    # Validação de título é feita pelo DTO (`PlaylistCreate`) via Pydantic
     
     nova_playlist = Playlist(
         titulo=data.titulo.strip(),
