@@ -57,4 +57,4 @@ class PlaylistAddRecursoRequest(SQLModel):
 
 class PlaylistReordenacaoRequest(SQLModel):
     """DTO para reordenar recursos na playlist."""
-    recursos_ordem: list[int]  # Lista de IDs de recursos na nova ordem
+    recurso_ids_ordem: list[int]  # Lista de IDs de recursos na nova ordem

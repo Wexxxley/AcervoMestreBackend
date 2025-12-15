@@ -373,7 +373,7 @@ def test_reordenar_recursos(
     
     # response = client.put(
     #     f"/playlists/{playlist.id}/reordenar",
-    #     json={"recursos_ordem": [recurso_url.id, recurso_nota.id]},
+    #     json={"recurso_ids_ordem": [recurso_url.id, recurso_nota.id]},
     #     headers={"Authorization": "Bearer token"}
     # )
     # assert response.status_code == 200

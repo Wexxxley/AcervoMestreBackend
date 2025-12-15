@@ -368,11 +368,11 @@ async def reordenar_recursos_playlist(
     playlist = await verificar_playlist_existe(playlist_id, session)
     await verificar_autoria(playlist, current_user)
     
-    if not data.recursos_ordem:
+    if not data.recurso_ids_ordem:
         raise HTTPException(status_code=400, detail="Lista de recursos vazia")
     
     # Verificar se há IDs duplicados na lista de reordenação
-    if len(set(data.recursos_ordem)) != len(data.recursos_ordem):
+    if len(set(data.recurso_ids_ordem)) != len(data.recurso_ids_ordem):
         raise HTTPException(
             status_code=400,
             detail="A lista de recursos contém IDs duplicados"
@@ -386,14 +386,14 @@ async def reordenar_recursos_playlist(
     
     ids_na_playlist = {pr.recurso_id for pr in recursos_playlist}
     
-    for recurso_id in data.recursos_ordem:
+    for recurso_id in data.recurso_ids_ordem:
         if recurso_id not in ids_na_playlist:
             raise HTTPException(
                 status_code=400,
                 detail=f"Recurso {recurso_id} não está nesta playlist"
             )
     
-    if len(data.recursos_ordem) != len(ids_na_playlist):
+    if len(data.recurso_ids_ordem) != len(ids_na_playlist):
         raise HTTPException(
             status_code=400,
             detail="A lista deve conter todos os recursos da playlist"
@@ -403,7 +403,7 @@ async def reordenar_recursos_playlist(
     # Construir mapeamento recurso_id -> PlaylistRecurso a partir do resultado já obtido
     recurso_id_to_pr = {pr.recurso_id: pr for pr in recursos_playlist}
 
-    for nova_ordem, recurso_id in enumerate(data.recursos_ordem):
+    for nova_ordem, recurso_id in enumerate(data.recurso_ids_ordem):
         playlist_recurso = recurso_id_to_pr.get(recurso_id)
         if playlist_recurso:
             playlist_recurso.ordem = nova_ordem
