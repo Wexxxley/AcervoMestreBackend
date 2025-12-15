@@ -1,6 +1,6 @@
 from sqlmodel import SQLModel
 from datetime import datetime
-from pydantic import Field, model_validator, ValidationError
+from pydantic import Field, model_validator, ValidationError, ConfigDict
 from urllib.parse import urlparse
 from app.enums.visibilidade import Visibilidade
 from app.enums.estrutura_recurso import EstruturaRecurso
@@ -157,5 +157,4 @@ class RecursoRead(SQLModel):
     
     criado_em: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

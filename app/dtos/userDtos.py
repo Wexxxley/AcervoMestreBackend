@@ -1,5 +1,6 @@
 from sqlmodel import SQLModel
 from datetime import date
+from pydantic import ConfigDict
 from app.enums.perfil import Perfil
 from app.enums.status import Status
 
@@ -29,5 +30,4 @@ class UserRead(SQLModel):
     path_img: str | None = None
     data_nascimento: date | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

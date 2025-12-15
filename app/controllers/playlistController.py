@@ -114,10 +114,19 @@ async def obter_playlist_por_id(
     Obter detalhes de uma playlist por ID.
     Retorna a playlist com a lista de recursos ordenados.
     """
-    playlist = await verificar_playlist_existe(playlist_id, session)
+    # Eager load playlist com recursos e seus objetos Recurso aninhados
+    statement = (
+        select(Playlist)
+        .where(Playlist.id == playlist_id)
+        .options(
+            selectinload(Playlist.recursos).selectinload(PlaylistRecurso.recurso)
+        )
+    )
+    result = await session.exec(statement)
+    playlist = result.first()
     
-    # Recarregar para garantir que os relacionamentos estejam preenchidos
-    await session.refresh(playlist)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist não encontrada")
     
     return playlist
 
@@ -205,9 +214,15 @@ async def editar_playlist(
     
     session.add(playlist)
     await session.commit()
-    await session.refresh(playlist)
     
-    return playlist
+    # Eagerly load recursos relationship before returning
+    result = await session.exec(
+        select(Playlist)
+        .options(selectinload(Playlist.recursos))
+        .where(Playlist.id == playlist.id)
+    )
+    playlist_with_recursos = result.scalar_one()
+    return playlist_with_recursos
 
 
 @playlist_router.delete("/{playlist_id}", status_code=204)

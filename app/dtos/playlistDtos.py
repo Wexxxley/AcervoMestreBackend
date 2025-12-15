@@ -1,6 +1,7 @@
 from sqlmodel import SQLModel, Field
 from datetime import datetime
 from typing import Optional
+from pydantic import ConfigDict
 from app.dtos.recursoDtos import RecursoRead
 
 
@@ -32,8 +33,7 @@ class PlaylistRead(SQLModel):
     criado_em: datetime
     recursos: list[PlaylistRecursoRead] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PlaylistListRead(SQLModel):
@@ -45,8 +45,7 @@ class PlaylistListRead(SQLModel):
     criado_em: datetime
     quantidade_recursos: int = 0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PlaylistAddRecursoRequest(SQLModel):
