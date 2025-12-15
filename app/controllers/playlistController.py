@@ -299,8 +299,13 @@ async def adicionar_recurso_playlist(
         await session.rollback()
         resultado_ordem = await session.exec(statement_ordem)
         proxima_ordem = (resultado_ordem.one() or -1) + 1
-        playlist_recurso.ordem = proxima_ordem
-        session.add(playlist_recurso)
+        # Recriar o objeto após rollback para evitar problemas de estado no session
+        novo_playlist_recurso = PlaylistRecurso(
+            playlist_id=playlist_id,
+            recurso_id=data.recurso_id,
+            ordem=proxima_ordem,
+        )
+        session.add(novo_playlist_recurso)
         await session.commit()
     
     return {"message": "Recurso adicionado à playlist com sucesso", "ordem": proxima_ordem}
