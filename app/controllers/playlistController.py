@@ -340,6 +340,12 @@ async def reordenar_recursos_playlist(
     if not data.recursos_ordem:
         raise HTTPException(status_code=400, detail="Lista de recursos vazia")
     
+    # Verificar se há IDs duplicados na lista de reordenação
+    if len(set(data.recursos_ordem)) != len(data.recursos_ordem):
+        raise HTTPException(
+            status_code=400,
+            detail="A lista de recursos contém IDs duplicados"
+        )
     # Verificar se todos os IDs existem na playlist
     statement = select(PlaylistRecurso).where(
         PlaylistRecurso.playlist_id == playlist_id
