@@ -195,7 +195,7 @@ async def editar_playlist(
         playlist.titulo = data.titulo.strip()
     
     if data.descricao is not None:
-        playlist.descricao = data.descricao.strip() if data.descricao else None
+        playlist.descricao = data.descricao.strip() if data.descricao.strip() else None
     
     session.add(playlist)
     await session.commit()
