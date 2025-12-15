@@ -16,6 +16,8 @@ load_dotenv()
 # IMPORTAR TODOS OS MODELS AQUI PARA QUE O SQLModel OS RECONHEÇA
 from app.models.user import User
 from app.models.recurso import Recurso
+from app.models.playlist import Playlist
+from app.models.playlist_recurso import PlaylistRecurso
 
 config = context.config
 

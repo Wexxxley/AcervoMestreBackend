@@ -14,8 +14,8 @@ class PlaylistRecurso(SQLModel, table=True):
     """
     __tablename__ = "PlaylistRecurso"
 
-    playlist_id: int = Field(foreign_key="Playlist.id", primary_key=True)
-    recurso_id: int = Field(foreign_key="Recurso.id", primary_key=True)
+    playlist_id: int = Field(primary_key=True)
+    recurso_id: int = Field(primary_key=True)
     
     # Campo ordem para permitir reordenação (arrastar e soltar)
     ordem: int = Field(ge=0)
