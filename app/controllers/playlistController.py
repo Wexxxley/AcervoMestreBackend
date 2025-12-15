@@ -376,15 +376,12 @@ async def reordenar_recursos_playlist(
             detail="A lista deve conter todos os recursos da playlist"
         )
     
-    # Atualizar as ordens
+    # Atualizar as ordens de forma eficiente (evitar N+1 queries)
+    # Construir mapeamento recurso_id -> PlaylistRecurso a partir do resultado já obtido
+    recurso_id_to_pr = {pr.recurso_id: pr for pr in recursos_playlist}
+
     for nova_ordem, recurso_id in enumerate(data.recursos_ordem):
-        statement = select(PlaylistRecurso).where(
-            (PlaylistRecurso.playlist_id == playlist_id) &
-            (PlaylistRecurso.recurso_id == recurso_id)
-        )
-        result = await session.exec(statement)
-        playlist_recurso = result.first()
-        
+        playlist_recurso = recurso_id_to_pr.get(recurso_id)
         if playlist_recurso:
             playlist_recurso.ordem = nova_ordem
             session.add(playlist_recurso)
