@@ -10,6 +10,8 @@ class PlaylistRecursoRead(SQLModel):
     recurso_id: int
     ordem: int
     recurso: RecursoRead
+    
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PlaylistCreate(SQLModel):
