@@ -22,3 +22,6 @@ pytest
 pytest-asyncio
 httpx
 aiosqlite
+
+# --- EMAIL ---
+fastapi-mail

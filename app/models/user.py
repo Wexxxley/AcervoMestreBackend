@@ -11,7 +11,7 @@ class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     nome: str = Field(max_length=255)
     email: str = Field(max_length=255, unique=True, index=True)
-    senha_hash: str = Field(max_length=255)
+    senha_hash: str | None = Field(default=None, nullable=True)
 
     perfil: Perfil 
     status: Status = Field(default=Status.Ativo)
