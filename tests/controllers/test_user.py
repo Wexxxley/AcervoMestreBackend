@@ -248,4 +248,4 @@ async def test_resend_invitation_fail_active(client, gestor_headers):
     response = await client.post(f"/users/resend_invitation/{user_id}", headers=gestor_headers)
     
     assert response.status_code == 400
-    assert "já está ativo" in response.json()["detail"] or "status" in response.json()["detail"]
+    assert "já está ativo" in response.json()["detail"].lower()

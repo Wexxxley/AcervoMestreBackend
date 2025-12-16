@@ -157,8 +157,8 @@ async def create_user(
         
         background_tasks.add_task(send_activation_email, user_in.email, token) # Agendar envio de email 
         
-    if "avatar" not in user_dict:
-        user_dict["avatar"] = None
+    if "path_img" not in user_dict:
+        user_dict["path_img"] = None
 
     db_user = User.model_validate(user_dict)
     

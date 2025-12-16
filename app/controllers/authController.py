@@ -121,7 +121,7 @@ async def refresh_token(request: RefreshTokenRequest, session: AsyncSession = De
     )
     
 @auth_router.post("/activate_account", status_code=status.HTTP_200_OK)
-async def activate_account( body: ActivateAccountRequest,  session: AsyncSession = Depends(get_session)):  
+async def activate_account(body: ActivateAccountRequest, session: AsyncSession = Depends(get_session)):  
     """Ativa a conta de um usuário e define a senha inicial.
 
     Parâmetros:

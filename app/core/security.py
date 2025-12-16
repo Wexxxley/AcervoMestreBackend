@@ -15,6 +15,8 @@ security = HTTPBearer()
 load_dotenv()
 
 SECRET_KEY = os.getenv("SECRET_KEY") 
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY environment variable must be set")
 ALGORITHM = os.getenv("ALGORITHM")
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 30 # Token curto (acesso rápido)
