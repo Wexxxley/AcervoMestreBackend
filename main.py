@@ -1,9 +1,9 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from app.controllers.userController import user_router
 from app.controllers.recursoController import recurso_router
+from app.controllers.authController import auth_router
 from app.controllers.playlistController import playlist_router
 
 @asynccontextmanager
@@ -35,4 +35,5 @@ app.add_middleware(
 # Rotas
 app.include_router(user_router)
 app.include_router(recurso_router)
+app.include_router(auth_router)  
 app.include_router(playlist_router)

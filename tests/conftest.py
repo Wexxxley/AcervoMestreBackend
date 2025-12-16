@@ -1,16 +1,14 @@
 import sys
 from pathlib import Path
-
 import pytest_asyncio
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel.ext.asyncio.session import AsyncSession 
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel
 from typing import AsyncGenerator
-
+from unittest.mock import AsyncMock 
 from main import app  # instância do FastAPI 
 from app.core.database import get_session 
 
@@ -57,3 +55,15 @@ async def client(session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
         yield c
     
     app.dependency_overrides.clear()
+    
+@pytest_asyncio.fixture(autouse=True)
+async def mock_email_service(monkeypatch):
+    """
+    Bloqueia o envio de e-mails interceptando diretamente a biblioteca FastMail.
+    Isso funciona mesmo que a função 'send_activation_email' já tenha sido importada.
+    """
+    mock_send = AsyncMock()
+    
+    monkeypatch.setattr("fastapi_mail.FastMail.send_message", mock_send)
+    
+    return mock_send
