@@ -5,9 +5,10 @@ from app.enums.visibilidade import Visibilidade
 from app.enums.estrutura_recurso import EstruturaRecurso
 from typing import TYPE_CHECKING, List
 
+from app.models.recurso_tag import RecursoTag
+
 if TYPE_CHECKING:
     from app.models.tag import Tag
-    from app.models.tag import RecursoTag
     
 class Recurso(SQLModel, table=True):
     __tablename__ = "Recurso"
@@ -17,7 +18,7 @@ class Recurso(SQLModel, table=True):
     descricao: str = Field(max_length=1000)
     visibilidade: Visibilidade = Field(default=Visibilidade.PUBLICO)
     estrutura: EstruturaRecurso
-    tags: List["Tag"] = Relationship(back_populates="recursos", link_model="RecursoTag")
+    tags: List["Tag"] = Relationship(back_populates="recursos", link_model=RecursoTag)
     
     # Autor do recurso — referencia explícita com comportamento ondelete
     autor_id: int = Field(sa_column=Column(nullable=False))
