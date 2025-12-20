@@ -11,6 +11,7 @@ from app.core.database import get_session
 from app.models.user import User
 
 security = HTTPBearer()
+security_optional = HTTPBearer(auto_error=False)
 
 load_dotenv()
 
@@ -114,6 +115,33 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
         
+    return user
+
+async def get_current_user_optional(
+    token: HTTPAuthorizationCredentials | None = Depends(security_optional),
+    session: AsyncSession = Depends(get_session)
+) -> User | None:
+    """Retorna o usuário autenticado se houver token válido, None caso contrário.
+    
+    Usado em rotas públicas que podem funcionar com ou sem autenticação.
+    Se não houver token ou se o token for inválido, retorna None sem lançar exceção.
+    """
+    if not token:
+        return None
+    
+    # 1. Decodifica o Token
+    payload = decode_token(token.credentials)
+    if not payload:
+        return None
+    
+    # 2. Valida se é um Access Token
+    if payload.get("type") != "access":
+        return None
+    
+    user_id = payload.get("sub")
+    
+    # 3. Busca o usuário no banco
+    user = await session.get(User, int(user_id))
     return user
 
 def create_reset_password_token(email: str) -> str:

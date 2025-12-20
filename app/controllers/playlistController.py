@@ -79,7 +79,7 @@ async def verificar_recurso_existe(
 async def criar_playlist(
     data: PlaylistCreate,
     session: AsyncSession = Depends(get_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """
     [RF12] Criar Playlist
@@ -87,9 +87,6 @@ async def criar_playlist(
     Cria uma nova playlist vazia associada ao usuário autenticado.
     Requer autenticação.
     """
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Autenticação necessária")
-    
     # Validação de título é feita pelo DTO (`PlaylistCreate`) via Pydantic
     
     nova_playlist = Playlist(
@@ -100,9 +97,15 @@ async def criar_playlist(
     
     session.add(nova_playlist)
     await session.commit()
-    await session.refresh(nova_playlist)
     
-    return nova_playlist
+    # Eagerly load recursos relationship before returning
+    result = await session.exec(
+        select(Playlist)
+        .options(selectinload(Playlist.recursos))
+        .where(Playlist.id == nova_playlist.id)
+    )
+    playlist_with_recursos = result.one()
+    return playlist_with_recursos
 
 
 @playlist_router.get("/{playlist_id}", response_model=PlaylistRead)
@@ -191,7 +194,7 @@ async def editar_playlist(
     playlist_id: int,
     data: PlaylistUpdate,
     session: AsyncSession = Depends(get_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Editar uma playlist (título e descrição).
@@ -221,7 +224,7 @@ async def editar_playlist(
         .options(selectinload(Playlist.recursos))
         .where(Playlist.id == playlist.id)
     )
-    playlist_with_recursos = result.scalar_one()
+    playlist_with_recursos = result.one()
     return playlist_with_recursos
 
 
@@ -229,7 +232,7 @@ async def editar_playlist(
 async def deletar_playlist(
     playlist_id: int,
     session: AsyncSession = Depends(get_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Deletar uma playlist.
@@ -252,7 +255,7 @@ async def adicionar_recurso_playlist(
     playlist_id: int,
     data: PlaylistAddRecursoRequest,
     session: AsyncSession = Depends(get_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Adicionar um recurso existente à playlist.
@@ -279,7 +282,7 @@ async def adicionar_recurso_playlist(
     # Obter a próxima ordem (última ordem + 1)
     statement_ordem = select(func.max(PlaylistRecurso.ordem)).where(
         PlaylistRecurso.playlist_id == playlist_id
-    ).with_for_update()
+    )
     resultado_ordem = await session.exec(statement_ordem)
     proxima_ordem = (resultado_ordem.one() or -1) + 1
 
@@ -316,7 +319,7 @@ async def remover_recurso_playlist(
     playlist_id: int,
     recurso_id: int,
     session: AsyncSession = Depends(get_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Remover um recurso da playlist.
@@ -363,7 +366,7 @@ async def reordenar_recursos_playlist(
     playlist_id: int,
     data: PlaylistReordenacaoRequest,
     session: AsyncSession = Depends(get_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Reordenar recursos na playlist.
@@ -404,15 +407,21 @@ async def reordenar_recursos_playlist(
             detail="A lista deve conter todos os recursos da playlist"
         )
     
-    # Atualizar as ordens de forma eficiente (evitar N+1 queries)
-    # Construir mapeamento recurso_id -> PlaylistRecurso a partir do resultado já obtido
-    recurso_id_to_pr = {pr.recurso_id: pr for pr in recursos_playlist}
-
+    # Para evitar conflito com a constraint UNIQUE (playlist_id, ordem),
+    # deletamos todos os registros e inserimos novamente com as novas ordens
+    for pr in recursos_playlist:
+        await session.delete(pr)
+    
+    await session.flush()  # Garante que os deletes sejam executados antes dos inserts
+    
+    # Inserir novamente com as novas ordens
     for nova_ordem, recurso_id in enumerate(data.recurso_ids_ordem):
-        playlist_recurso = recurso_id_to_pr.get(recurso_id)
-        if playlist_recurso:
-            playlist_recurso.ordem = nova_ordem
-            session.add(playlist_recurso)
+        novo_pr = PlaylistRecurso(
+            playlist_id=playlist_id,
+            recurso_id=recurso_id,
+            ordem=nova_ordem
+        )
+        session.add(novo_pr)
     
     await session.commit()
     

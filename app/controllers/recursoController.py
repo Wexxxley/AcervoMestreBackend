@@ -7,7 +7,7 @@ from app.dtos.recursoDtos import RecursoCreate, RecursoRead, RecursoUpdate, Recu
 from app.models.recurso import Recurso
 from app.models.user import User
 from app.core.database import get_session
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_optional
 from app.enums.visibilidade import Visibilidade
 from app.enums.estrutura_recurso import EstruturaRecurso
 from app.enums.perfil import Perfil
@@ -20,7 +20,7 @@ recurso_router = APIRouter(prefix="/recursos", tags=["Recursos"])
 async def get_recurso_by_id(
     recurso_id: int, 
     session: AsyncSession = Depends(get_session),
-    current_user: User | None = Depends(get_current_user)
+    current_user: User | None = Depends(get_current_user_optional)
 ):
     """Retorna um recurso por ID e incrementa o contador de visualizações.
 
@@ -74,7 +74,7 @@ async def get_all_recursos(
     pagination: PaginationParams = Depends(),
     palavra_chave: str | None = Query(None, description="Busca por título ou descrição"),
     estrutura: str | None = Query(None, description="Filtra por estrutura (UPLOAD, URL, NOTA)"),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     """Lista recursos com paginação e filtros.
 
@@ -196,9 +196,7 @@ async def create_recurso(
     - 413: Arquivo muito grande.
     - 500: Erro no upload.
     """
-    # Requer autenticação
-    if not current_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticação necessária")
+
 
     # Preparar dados base do recurso
     recurso_data = {
@@ -287,10 +285,6 @@ async def update_recurso(
     if not db_recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
-    # Requer autenticação
-    if not current_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticação necessária")
-
     # Permissão: apenas autor ou Coordenador podem editar
     if not (current_user.id == db_recurso.autor_id or current_user.perfil == Perfil.Coordenador):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
@@ -353,10 +347,6 @@ async def delete_recurso(
     if not recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
-    # Requer autenticação
-    if not current_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticação necessária")
-
     # Permissão: apenas autor ou Coordenador podem deletar
     if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para excluir recurso")
@@ -377,7 +367,7 @@ async def delete_recurso(
 async def download_recurso(
     recurso_id: int,
     session: AsyncSession = Depends(get_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     """
     Incrementa o contador de downloads e retorna URL do arquivo (para UPLOAD).
