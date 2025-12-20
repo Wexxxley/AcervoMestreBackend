@@ -1,7 +1,7 @@
 """Cria tabelas Playlist e PlaylistRecurso para gerenciamento de listas de recursos
 
 Revision ID: f1a2b3c4d5e6
-Revises: 6bc647afd908
+Revises: 2f0afd925ce9
 Create Date: 2025-12-15 10:00:00.000000
 
 """
@@ -14,7 +14,7 @@ import sqlmodel
 
 # revision identifiers, used by Alembic.
 revision: str = 'f1a2b3c4d5e6'
-down_revision: Union[str, Sequence[str], None] = '6bc647afd908'
+down_revision: Union[str, Sequence[str], None] = '2f0afd925ce9'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

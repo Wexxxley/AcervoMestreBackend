@@ -7,6 +7,10 @@ venv/
 
 # Docker & Banco de Dados 
 postgres_data/
+minio_data/
+
+# Uploads locais (prevenção)
+uploads/
 
 # IDEs
 .vscode/

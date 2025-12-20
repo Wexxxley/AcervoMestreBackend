@@ -1,15 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from sqlalchemy import func, or_, update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from app.dtos.recursoDtos import RecursoCreate, RecursoRead, RecursoUpdate
+from typing import Optional
+from app.dtos.recursoDtos import RecursoCreate, RecursoRead, RecursoUpdate, RecursoDownloadResponse
 from app.models.recurso import Recurso
 from app.models.user import User
 from app.core.database import get_session
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_optional
 from app.enums.visibilidade import Visibilidade
+from app.enums.estrutura_recurso import EstruturaRecurso
 from app.enums.perfil import Perfil
 from app.utils.pagination import PaginationParams, PaginatedResponse
+from app.services.s3_service import s3_service
 
 recurso_router = APIRouter(prefix="/recursos", tags=["Recursos"])
 
@@ -17,7 +20,7 @@ recurso_router = APIRouter(prefix="/recursos", tags=["Recursos"])
 async def get_recurso_by_id(
     recurso_id: int, 
     session: AsyncSession = Depends(get_session),
-    current_user: User | None = Depends(get_current_user)
+    current_user: User | None = Depends(get_current_user_optional)
 ):
     """Retorna um recurso por ID e incrementa o contador de visualizações.
 
@@ -71,7 +74,7 @@ async def get_all_recursos(
     pagination: PaginationParams = Depends(),
     palavra_chave: str | None = Query(None, description="Busca por título ou descrição"),
     estrutura: str | None = Query(None, description="Filtra por estrutura (UPLOAD, URL, NOTA)"),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     """Lista recursos com paginação e filtros.
 
@@ -157,39 +160,89 @@ async def get_all_recursos(
 
 @recurso_router.post("/create", response_model=RecursoRead, status_code=status.HTTP_201_CREATED)
 async def create_recurso(
-    recurso_in: RecursoCreate,
+    titulo: str = Form(...),
+    descricao: str = Form(...),
+    estrutura: EstruturaRecurso = Form(...),
+    visibilidade: Visibilidade = Form(Visibilidade.PUBLICO),
+    is_destaque: bool = Form(False),
+    # Campos específicos para cada tipo
+    file: Optional[UploadFile] = File(None),
+    url_externa: Optional[str] = Form(None),
+    conteudo_markdown: Optional[str] = Form(None),
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """Cria um novo recurso.
+    """
+    Cria um novo recurso com suporte a upload de arquivos.
 
     Parâmetros:
-    - `recurso_in` (RecursoCreate): dados do recurso a criar.
-    - `session` (AsyncSession): sessão do banco.
-    - `current_user` (User): usuário autenticado; será usado como autor do recurso.
-
-    Comportamento:
-    - `autor_id` é derivado do `current_user` para evitar impersonation.
+    - `titulo` (str): Título do recurso.
+    - `descricao` (str): Descrição do recurso.
+    - `estrutura` (EstruturaRecurso): Tipo do recurso (UPLOAD, URL, NOTA).
+    - `visibilidade` (Visibilidade): Visibilidade (PUBLICO, PRIVADO).
+    - `is_destaque` (bool): Se o recurso é destaque.
+    - `file` (UploadFile|None): Arquivo para upload (obrigatório para UPLOAD).
+    - `url_externa` (str|None): URL externa (obrigatória para URL).
+    - `conteudo_markdown` (str|None): Conteúdo markdown (obrigatório para NOTA).
+    - `session` (AsyncSession): Sessão do banco.
+    - `current_user` (User): Usuário autenticado.
 
     Retorna:
     - `RecursoRead` com os dados do recurso criado (HTTP 201).
 
     Erros possíveis:
-    - 401: quando não autenticado.
-    - 404: autor não encontrado (sanity check; improvável se `current_user` válido).
-    - 422: validação de campos específicos por `estrutura`.
+    - 401: Não autenticado.
+    - 400: Validação de campos (tipo de arquivo, campos obrigatórios).
+    - 413: Arquivo muito grande.
+    - 500: Erro no upload.
     """
-    # Requer autenticação
-    if not current_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticação necessária")
-
-    # Derivar autor_id do usuário autenticado para evitar impersonation
-    recurso_dict = recurso_in.model_dump()
-    recurso_dict["autor_id"] = current_user.id
 
 
-    db_recurso = Recurso.model_validate(recurso_dict)
+    # Preparar dados base do recurso
+    recurso_data = {
+        "titulo": titulo,
+        "descricao": descricao,
+        "estrutura": estrutura,
+        "visibilidade": visibilidade,
+        "is_destaque": is_destaque,
+        "autor_id": current_user.id,
+    }
 
+    # Processar de acordo com o tipo de estrutura
+    if estrutura == EstruturaRecurso.UPLOAD:
+        if not file:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Arquivo é obrigatório para recursos do tipo UPLOAD"
+            )
+        
+        # Fazer upload do arquivo para MinIO
+        upload_result = await s3_service.upload_file(file)
+        
+        recurso_data.update({
+            "storage_key": upload_result["storage_key"],
+            "mime_type": upload_result["mime_type"],
+            "tamanho_bytes": upload_result["tamanho_bytes"],
+        })
+    
+    elif estrutura == EstruturaRecurso.URL:
+        if not url_externa:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="URL externa é obrigatória para recursos do tipo URL"
+            )
+        recurso_data["url_externa"] = url_externa
+    
+    elif estrutura == EstruturaRecurso.NOTA:
+        if not conteudo_markdown:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Conteúdo markdown é obrigatório para recursos do tipo NOTA"
+            )
+        recurso_data["conteudo_markdown"] = conteudo_markdown
+
+    # Criar recurso no banco
+    db_recurso = Recurso.model_validate(recurso_data)
     session.add(db_recurso)
     await session.commit()
     await session.refresh(db_recurso)
@@ -231,10 +284,6 @@ async def update_recurso(
 
     if not db_recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
-
-    # Requer autenticação
-    if not current_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticação necessária")
 
     # Permissão: apenas autor ou Coordenador podem editar
     if not (current_user.id == db_recurso.autor_id or current_user.perfil == Perfil.Coordenador):
@@ -298,13 +347,108 @@ async def delete_recurso(
     if not recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
-    # Requer autenticação
-    if not current_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticação necessária")
-
     # Permissão: apenas autor ou Coordenador podem deletar
     if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para excluir recurso")
 
+    # Se for UPLOAD, remover arquivo do MinIO
+    if recurso.estrutura == EstruturaRecurso.UPLOAD and recurso.storage_key:
+        try:
+            await s3_service.delete_file(recurso.storage_key)
+        except Exception as e:
+            # Log do erro, mas não falhar a exclusão do banco
+            print(f"Erro ao deletar arquivo do S3: {e}")
+
     await session.delete(recurso)
     await session.commit()
+
+
+@recurso_router.post("/{recurso_id}/download", response_model=RecursoDownloadResponse)
+async def download_recurso(
+    recurso_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User | None = Depends(get_current_user_optional),
+):
+    """
+    Incrementa o contador de downloads e retorna URL do arquivo (para UPLOAD).
+
+    Parâmetros:
+    - `recurso_id` (int): ID do recurso.
+    - `session` (AsyncSession): Sessão do banco.
+    - `current_user` (User|None): Usuário autenticado (se houver).
+
+    Comportamento:
+    - Para UPLOAD: Incrementa downloads e retorna URL do arquivo.
+    - Para URL: Retorna a URL externa.
+    - Para NOTA: Retorna erro (notas não têm "download").
+
+    Regras de visibilidade:
+    - Recursos PRIVADOS só podem ser acessados por não-ALUNO autenticado.
+
+    Retorna:
+    - `RecursoDownloadResponse` com URL e contador de downloads.
+
+    Erros possíveis:
+    - 404: Recurso não encontrado.
+    - 403: Acesso negado (recurso privado).
+    - 400: Operação não suportada para o tipo de recurso.
+    """
+    # Buscar recurso
+    statement = select(Recurso).where(Recurso.id == recurso_id)
+    result = await session.exec(statement)
+    recurso = result.first()
+
+    if not recurso:
+        raise HTTPException(status_code=404, detail="Recurso não encontrado")
+
+    # Verificar visibilidade
+    if recurso.visibilidade == Visibilidade.PRIVADO:
+        if not current_user or current_user.perfil == Perfil.Aluno:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acesso negado a recurso privado",
+            )
+
+    # Processar de acordo com o tipo
+    if recurso.estrutura == EstruturaRecurso.UPLOAD:
+        if not recurso.storage_key:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Recurso de upload sem storage_key"
+            )
+        
+        # Incrementar downloads
+        await session.exec(
+            update(Recurso)
+            .where(Recurso.id == recurso_id)
+            .values(downloads=Recurso.downloads + 1)
+        )
+        await session.commit()
+        
+        # Buscar recurso atualizado
+        result = await session.exec(statement)
+        recurso = result.first()
+        
+        # Gerar URL do arquivo
+        download_url = s3_service.get_file_url(recurso.storage_key)
+        
+        return RecursoDownloadResponse(
+            message="URL de download gerada com sucesso",
+            download_url=download_url,
+            downloads=recurso.downloads
+        )
+    
+    elif recurso.estrutura == EstruturaRecurso.URL:
+        # Para URLs externas, apenas retornar a URL
+        return RecursoDownloadResponse(
+            message="URL externa do recurso",
+            download_url=recurso.url_externa,
+            downloads=recurso.downloads
+        )
+    
+    elif recurso.estrutura == EstruturaRecurso.NOTA:
+        # Notas não têm download
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Operação de download não suportada para recursos do tipo NOTA"
+        )

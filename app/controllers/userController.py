@@ -18,8 +18,8 @@ from app.core.security import create_activation_token
 
 user_router = APIRouter(prefix="/users", tags=["Users"])
 
-allow_staff = RoleChecker(["Professor", "Cordenador", "Gestor"])
-allow_management = RoleChecker(["Cordenador", "Gestor"])
+allow_staff = RoleChecker(["Professor", "Coordenador", "Gestor"])
+allow_management = RoleChecker(["Coordenador", "Gestor"])
 allow_gestor = RoleChecker(["Gestor"])
 
 @user_router.get("/get/{user_id}", response_model=UserRead, dependencies=[Depends(allow_staff)])
