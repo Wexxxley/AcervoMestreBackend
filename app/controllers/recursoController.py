@@ -1,8 +1,13 @@
+from aiosqlite import IntegrityError
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from sqlalchemy import func, or_, update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from typing import Optional
+from sqlalchemy.orm import selectinload
+from typing import List
+from app.models.recurso_tag import RecursoTag
+
 from app.dtos.recursoDtos import RecursoRead, RecursoUpdate, RecursoDownloadResponse
 from app.models.recurso import Recurso
 from app.models.user import User
@@ -13,7 +18,6 @@ from app.enums.estrutura_recurso import EstruturaRecurso
 from app.enums.perfil import Perfil
 from app.utils.pagination import PaginationParams, PaginatedResponse
 from app.services.s3_service import s3_service
-from sqlalchemy.orm import selectinload
 
 recurso_router = APIRouter(prefix="/recursos", tags=["Recursos"])
 
@@ -31,13 +35,17 @@ async def get_recurso_by_id(
     - `current_user` (User|None): usuário autenticado (se houver).
 
     Retorna:
-    - `RecursoRead` com os dados do recurso solicitado.
+    - `RecursoRead` com os dados do recurso solicitado e suas tags.
 
     Erros possíveis:
     - 404: recurso não encontrado.
     - 403: acesso negado se recurso for PRIVADO e usuário for ALUNO ou não autenticado.
-    - 401: quando autenticação for necessária para operações protegidas (usada em outras rotas).
+    
+    Permissões:
+    - Acesso público para recursos PÚBLICOS.
+    - Autenticação necessária para recursos PRIVADOS (exceto Alunos).
     """
+    # 1. Primeira busca para validação (carregando tags)
     statement = (
         select(Recurso)
         .where(Recurso.id == recurso_id)
@@ -50,27 +58,32 @@ async def get_recurso_by_id(
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
     if recurso.visibilidade == Visibilidade.PRIVADO:
-        # Recursos privados só podem ser vistos por usuários que NÃO são ALUNO
         if not current_user or current_user.perfil == Perfil.Aluno:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Acesso negado a recurso privado",
             )
 
+    # 2. Incrementa visualização
     await session.exec(
         update(Recurso)
         .where(Recurso.id == recurso_id)
         .values(visualizacoes=Recurso.visualizacoes + 1)
     )
-
-    # Persistir a atualização e retornar o recurso atualizado
     await session.commit()
 
-    statement = select(Recurso).where(Recurso.id == recurso_id)
+    # 3. Segunda busca (CRUCIAL: precisa carregar as tags novamente após o commit)
+    # Como houve commit, o objeto anterior pode estar expirado.
+    # Buscamos novamente garantindo que as tags venham juntas para o retorno.
+    statement = (
+        select(Recurso)
+        .where(Recurso.id == recurso_id)
+        .options(selectinload(Recurso.tags))
+    )
     result = await session.exec(statement)
-    recurso = result.first()
+    recurso_atualizado = result.first()
 
-    return recurso
+    return recurso_atualizado
 
 @recurso_router.get("/get_all", response_model=PaginatedResponse[RecursoRead])
 async def get_all_recursos(
@@ -96,16 +109,12 @@ async def get_all_recursos(
     - ALUNO e usuários não autenticados veem apenas recursos `PUBLICO`.
     - Outros perfis (Professor, Coordenador, Gestor) veem todos os recursos.
     """
-    # Montar a query base
+    # Carregamento ansioso das tags para a lista
     statement = select(Recurso).options(selectinload(Recurso.tags))
     
-    # Aplicar filtros de visibilidade
-    # Usuários ALUNO e não autenticados só veem recursos PUBLICOS
-    # Usuários autenticados não-ALUNO (Professor, Coordenador, Gestor) veem TODOS os recursos
+    # Filtros de Visibilidade
     if current_user is None or (current_user and current_user.perfil == Perfil.Aluno):
-        # Alunos e usuários não autenticados só veem PUBLICOS
         statement = statement.where(Recurso.visibilidade == Visibilidade.PUBLICO)
-    # Usuários autenticados não-ALUNO veem todos os recursos (sem filtro adicional)
     
     # Filtro por palavra-chave
     if palavra_chave:
@@ -120,14 +129,11 @@ async def get_all_recursos(
     if estrutura:
         statement = statement.where(Recurso.estrutura == estrutura)
 
-    # Contar o total de registros (com os mesmos filtros)
+    # Contagem total (Query separada para performance)
     count_statement = select(func.count()).select_from(Recurso)
     
-    # Aplicar os mesmos filtros de visibilidade na contagem
     if current_user is None or (current_user and current_user.perfil == Perfil.Aluno):
-        # Alunos e usuários não autenticados só contam PUBLICOS
         count_statement = count_statement.where(Recurso.visibilidade == Visibilidade.PUBLICO)
-    # Usuários autenticados não-ALUNO contam todos os recursos (sem filtro adicional)
     
     if palavra_chave:
         count_statement = count_statement.where(
@@ -143,14 +149,13 @@ async def get_all_recursos(
     total_result = await session.exec(count_statement)
     total_items = total_result.one()
 
-    # Aplicar a paginação
+    # Paginação
     offset = (pagination.page - 1) * pagination.per_page
     statement = statement.offset(offset).limit(pagination.per_page).order_by(Recurso.criado_em.desc())
     
     result = await session.exec(statement)
     recursos = result.all()
 
-    # Calcular total de páginas
     total_pages = (total_items + pagination.per_page - 1) // pagination.per_page
 
     return PaginatedResponse(
@@ -161,7 +166,6 @@ async def get_all_recursos(
         total_pages=total_pages
     )
 
-
 @recurso_router.post("/create", response_model=RecursoRead, status_code=status.HTTP_201_CREATED)
 async def create_recurso(
     titulo: str = Form(...),
@@ -169,6 +173,7 @@ async def create_recurso(
     estrutura: EstruturaRecurso = Form(...),
     visibilidade: Visibilidade = Form(Visibilidade.PUBLICO),
     is_destaque: bool = Form(False),
+    tag_ids: list[str] = Form([]),
     # Campos específicos para cada tipo
     file: Optional[UploadFile] = File(None),
     url_externa: Optional[str] = Form(None),
@@ -201,8 +206,23 @@ async def create_recurso(
     - 500: Erro no upload.
     """
 
-
+    ids_tags_finais: list[int] = []
+    
+    for item in tag_ids:
+        # Caso 1: Swagger envia tudo numa string só com vírgula "4,1"
+        if "," in item:
+            partes = item.split(",")
+            for p in partes:
+                if p.strip().isdigit():
+                    ids_tags_finais.append(int(p.strip()))
+        # Caso 2: Envio padrão (Postman/Front) envia itens separados "4"
+        elif item.strip().isdigit():
+            ids_tags_finais.append(int(item.strip()))
+            
+    # Remove duplicatas (ex: se enviar 4 duas vezes)
+    ids_tags_finais = list(set(ids_tags_finais))
     # Preparar dados base do recurso
+    
     recurso_data = {
         "titulo": titulo,
         "descricao": descricao,
@@ -245,13 +265,37 @@ async def create_recurso(
             )
         recurso_data["conteudo_markdown"] = conteudo_markdown
 
-    # Criar recurso no banco
+    # 1. Salva o Recurso
     db_recurso = Recurso.model_validate(recurso_data)
     session.add(db_recurso)
-    await session.commit()
-    await session.refresh(db_recurso)
+    await session.flush() # Gera o ID do recurso
 
-    return db_recurso
+    # 2. Salva as Tags usando a lista processada
+    if ids_tags_finais:
+        for tag_id in ids_tags_finais:
+            # Aqui você pode adicionar uma verificação se a tag existe, se quiser
+            recurso_tag = RecursoTag(
+                recurso_id=db_recurso.id,
+                tag_id=tag_id
+            )
+            session.add(recurso_tag)
+
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(status_code=400, detail="Erro ao associar tags. Verifique se os IDs existem.")
+    
+    # 3. Recarrega para retornar
+    statement = (
+        select(Recurso)
+        .where(Recurso.id == db_recurso.id)
+        .options(selectinload(Recurso.tags))
+    )
+    result = await session.exec(statement)
+    recurso_com_tags = result.one()
+
+    return recurso_com_tags
 
 @recurso_router.post("/{recurso_id}/download", response_model=RecursoDownloadResponse)
 async def download_recurso(
@@ -282,6 +326,7 @@ async def download_recurso(
     - 404: Recurso não encontrado.
     - 403: Acesso negado (recurso privado).
     - 400: Operação não suportada para o tipo de recurso.
+    - 500: Erro interno se storage_key estiver ausente.
     """
     # Buscar recurso
     statement = select(Recurso).where(Recurso.id == recurso_id)
@@ -314,10 +359,7 @@ async def download_recurso(
             .values(downloads=Recurso.downloads + 1)
         )
         await session.commit()
-        
-        # Buscar recurso atualizado
-        result = await session.exec(statement)
-        recurso = result.first()
+        await session.refresh(recurso) # Aqui refresh é ok pois RecursoDownloadResponse não usa tags
         
         # Gerar URL do arquivo
         download_url = s3_service.get_file_url(recurso.storage_key)
@@ -404,8 +446,18 @@ async def update_recurso(
 
     session.add(db_recurso)
     await session.commit()
-    await session.refresh(db_recurso)
-    return db_recurso
+    
+    # CORREÇÃO: Substituído session.refresh por query com selectinload
+    # Necessário para carregar tags antes de retornar ao Pydantic
+    statement = (
+        select(Recurso)
+        .where(Recurso.id == recurso_id)
+        .options(selectinload(Recurso.tags))
+    )
+    result = await session.exec(statement)
+    recurso_atualizado = result.one()
+    
+    return recurso_atualizado
 
 @recurso_router.delete("/delete/{recurso_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_recurso(
