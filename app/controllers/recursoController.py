@@ -13,6 +13,7 @@ from app.enums.estrutura_recurso import EstruturaRecurso
 from app.enums.perfil import Perfil
 from app.utils.pagination import PaginationParams, PaginatedResponse
 from app.services.s3_service import s3_service
+from sqlalchemy.orm import selectinload
 
 recurso_router = APIRouter(prefix="/recursos", tags=["Recursos"])
 
@@ -37,7 +38,11 @@ async def get_recurso_by_id(
     - 403: acesso negado se recurso for PRIVADO e usuário for ALUNO ou não autenticado.
     - 401: quando autenticação for necessária para operações protegidas (usada em outras rotas).
     """
-    statement = select(Recurso).where(Recurso.id == recurso_id)
+    statement = (
+        select(Recurso)
+        .where(Recurso.id == recurso_id)
+        .options(selectinload(Recurso.tags))
+    )
     result = await session.exec(statement)
     recurso = result.first()
 
@@ -92,7 +97,7 @@ async def get_all_recursos(
     - Outros perfis (Professor, Coordenador, Gestor) veem todos os recursos.
     """
     # Montar a query base
-    statement = select(Recurso)
+    statement = select(Recurso).options(selectinload(Recurso.tags))
     
     # Aplicar filtros de visibilidade
     # Usuários ALUNO e não autenticados só veem recursos PUBLICOS

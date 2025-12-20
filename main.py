@@ -5,6 +5,7 @@ from app.controllers.userController import user_router
 from app.controllers.recursoController import recurso_router
 from app.controllers.authController import auth_router
 from app.controllers.playlistController import playlist_router
+from app.controllers.tagController import tag_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -37,3 +38,4 @@ app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(recurso_router)
 app.include_router(playlist_router)
+app.include_router(tag_router)

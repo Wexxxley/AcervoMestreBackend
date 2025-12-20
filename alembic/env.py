@@ -18,6 +18,7 @@ from app.models.user import User
 from app.models.recurso import Recurso
 from app.models.playlist import Playlist
 from app.models.playlist_recurso import PlaylistRecurso
+from app.models.tag import Tag, RecursoTag
 
 config = context.config
 

@@ -1,17 +1,23 @@
 from datetime import datetime, timezone
-from sqlmodel import SQLModel, Field
+from sqlmodel import Relationship, SQLModel, Field
 from sqlalchemy import DateTime, Text, ForeignKeyConstraint, Index, Column
 from app.enums.visibilidade import Visibilidade
 from app.enums.estrutura_recurso import EstruturaRecurso
+from typing import TYPE_CHECKING, List
+
+if TYPE_CHECKING:
+    from app.models.tag import Tag
+    from app.models.tag import RecursoTag
+    
 class Recurso(SQLModel, table=True):
     __tablename__ = "Recurso"
 
     id: int | None = Field(default=None, primary_key=True)
     titulo: str = Field(max_length=255)
     descricao: str = Field(max_length=1000)
-    
     visibilidade: Visibilidade = Field(default=Visibilidade.PUBLICO)
     estrutura: EstruturaRecurso
+    tags: List["Tag"] = Relationship(back_populates="recursos", link_model="RecursoTag")
     
     # Autor do recurso — referencia explícita com comportamento ondelete
     autor_id: int = Field(sa_column=Column(nullable=False))

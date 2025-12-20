@@ -2,6 +2,7 @@ from sqlmodel import SQLModel
 from datetime import datetime
 from pydantic import Field, model_validator, ValidationError, ConfigDict
 from urllib.parse import urlparse
+from app.dtos.tagDtos import TagRead
 from app.enums.visibilidade import Visibilidade
 from app.enums.estrutura_recurso import EstruturaRecurso
 
@@ -147,6 +148,7 @@ class RecursoRead(SQLModel):
     visualizacoes: int
     downloads: int
     curtidas: int
+    tags: list[TagRead] = []
     
     # Campos específicos
     conteudo_markdown: str | None = None
