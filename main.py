@@ -33,7 +33,7 @@ app.add_middleware(
 )
 
 # Rotas
+app.include_router(auth_router)  
 app.include_router(user_router)
 app.include_router(recurso_router)
-app.include_router(auth_router)  
 app.include_router(playlist_router)

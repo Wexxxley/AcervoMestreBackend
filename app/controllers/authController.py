@@ -1,5 +1,4 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from pydantic import EmailStr
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.database import get_session

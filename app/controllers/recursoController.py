@@ -3,7 +3,7 @@ from sqlalchemy import func, or_, update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from typing import Optional
-from app.dtos.recursoDtos import RecursoCreate, RecursoRead, RecursoUpdate, RecursoDownloadResponse
+from app.dtos.recursoDtos import RecursoRead, RecursoUpdate, RecursoDownloadResponse
 from app.models.recurso import Recurso
 from app.models.user import User
 from app.core.database import get_session
@@ -66,7 +66,6 @@ async def get_recurso_by_id(
     recurso = result.first()
 
     return recurso
-
 
 @recurso_router.get("/get_all", response_model=PaginatedResponse[RecursoRead])
 async def get_all_recursos(
@@ -249,120 +248,6 @@ async def create_recurso(
 
     return db_recurso
 
-
-@recurso_router.patch("/patch/{recurso_id}", response_model=RecursoRead)
-async def update_recurso(
-    recurso_id: int, 
-    recurso_in: RecursoUpdate, 
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    """Atualiza campos de um recurso existente.
-
-    Parâmetros:
-    - `recurso_id` (int): ID do recurso a ser atualizado.
-    - `recurso_in` (RecursoUpdate): campos a atualizar (parciais permitidas).
-    - `session` (AsyncSession): sessão do banco.
-    - `current_user` (User): usuário autenticado (autor ou Coordenador exigido para permissão).
-
-    Regras de autorização:
-    - Apenas o autor do recurso ou usuários com `Perfil.Coordenador` podem editar.
-
-    Retorna:
-    - `RecursoRead` com os dados atualizados.
-
-    Erros possíveis:
-    - 401: não autenticado.
-    - 403: permissão negada para editar.
-    - 404: recurso não encontrado.
-    - 422: tentativa de atualizar campos polimórficos de maneira inconsistente.
-    """
-
-    statement = select(Recurso).where(Recurso.id == recurso_id)
-    result = await session.exec(statement)
-    db_recurso = result.first()
-
-    if not db_recurso:
-        raise HTTPException(status_code=404, detail="Recurso não encontrado")
-
-    # Permissão: apenas autor ou Coordenador podem editar
-    if not (current_user.id == db_recurso.autor_id or current_user.perfil == Perfil.Coordenador):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
-
-    recurso_data = recurso_in.model_dump(exclude_unset=True)
-
-    # Validate that updated fields are compatible with the resource's estrutura type
-    estrutura_allowed_fields = {
-        "UPLOAD": {"titulo", "descricao", "visibilidade", "is_destaque", "storage_key", "mime_type", "tamanho_bytes"},
-        "URL": {"titulo", "descricao", "visibilidade", "is_destaque", "url_externa"},
-        "NOTA": {"titulo", "descricao", "visibilidade", "is_destaque", "conteudo_markdown"},
-    }
-    estrutura = db_recurso.estrutura
-    allowed_fields = estrutura_allowed_fields.get(estrutura, set())
-    for field in recurso_data:
-        if field not in allowed_fields:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Campo '{field}' não é permitido para recursos do tipo '{estrutura}'"
-            )
-
-    for key, value in recurso_data.items():
-        setattr(db_recurso, key, value)
-
-    session.add(db_recurso)
-    await session.commit()
-    await session.refresh(db_recurso)
-    return db_recurso
-
-
-@recurso_router.delete("/delete/{recurso_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_recurso(
-    recurso_id: int,
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    """Exclui um recurso existente.
-
-    Parâmetros:
-    - `recurso_id` (int): ID do recurso a ser excluído.
-    - `session` (AsyncSession): sessão do banco.
-    - `current_user` (User): usuário autenticado (autor ou Coordenador exigido para permissão).
-
-    Regras de autorização:
-    - Apenas o autor do recurso ou usuários com `Perfil.Coordenador` podem excluir.
-
-    Retorno:
-    - 204 No Content em sucesso.
-
-    Erros possíveis:
-    - 401: não autenticado.
-    - 403: permissão negada para excluir.
-    - 404: recurso não encontrado.
-    """
-
-    statement = select(Recurso).where(Recurso.id == recurso_id)
-    result = await session.exec(statement)
-    recurso = result.first()
-
-    if not recurso:
-        raise HTTPException(status_code=404, detail="Recurso não encontrado")
-
-    # Permissão: apenas autor ou Coordenador podem deletar
-    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para excluir recurso")
-
-    # Se for UPLOAD, remover arquivo do MinIO
-    if recurso.estrutura == EstruturaRecurso.UPLOAD and recurso.storage_key:
-        try:
-            await s3_service.delete_file(recurso.storage_key)
-        except Exception as e:
-            # Log do erro, mas não falhar a exclusão do banco
-            print(f"Erro ao deletar arquivo do S3: {e}")
-
-    await session.delete(recurso)
-    await session.commit()
-
-
 @recurso_router.post("/{recurso_id}/download", response_model=RecursoDownloadResponse)
 async def download_recurso(
     recurso_id: int,
@@ -452,3 +337,114 @@ async def download_recurso(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Operação de download não suportada para recursos do tipo NOTA"
         )
+
+@recurso_router.patch("/patch/{recurso_id}", response_model=RecursoRead)
+async def update_recurso(
+    recurso_id: int, 
+    recurso_in: RecursoUpdate, 
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Atualiza campos de um recurso existente.
+
+    Parâmetros:
+    - `recurso_id` (int): ID do recurso a ser atualizado.
+    - `recurso_in` (RecursoUpdate): campos a atualizar (parciais permitidas).
+    - `session` (AsyncSession): sessão do banco.
+    - `current_user` (User): usuário autenticado (autor ou Coordenador exigido para permissão).
+
+    Regras de autorização:
+    - Apenas o autor do recurso ou usuários com `Perfil.Coordenador` podem editar.
+
+    Retorna:
+    - `RecursoRead` com os dados atualizados.
+
+    Erros possíveis:
+    - 401: não autenticado.
+    - 403: permissão negada para editar.
+    - 404: recurso não encontrado.
+    - 422: tentativa de atualizar campos polimórficos de maneira inconsistente.
+    """
+
+    statement = select(Recurso).where(Recurso.id == recurso_id)
+    result = await session.exec(statement)
+    db_recurso = result.first()
+
+    if not db_recurso:
+        raise HTTPException(status_code=404, detail="Recurso não encontrado")
+
+    # Permissão: apenas autor ou Coordenador podem editar
+    if not (current_user.id == db_recurso.autor_id or current_user.perfil == Perfil.Coordenador):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
+
+    recurso_data = recurso_in.model_dump(exclude_unset=True)
+
+    # Validate that updated fields are compatible with the resource's estrutura type
+    estrutura_allowed_fields = {
+        "UPLOAD": {"titulo", "descricao", "visibilidade", "is_destaque", "storage_key", "mime_type", "tamanho_bytes"},
+        "URL": {"titulo", "descricao", "visibilidade", "is_destaque", "url_externa"},
+        "NOTA": {"titulo", "descricao", "visibilidade", "is_destaque", "conteudo_markdown"},
+    }
+    estrutura = db_recurso.estrutura
+    allowed_fields = estrutura_allowed_fields.get(estrutura, set())
+    for field in recurso_data:
+        if field not in allowed_fields:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Campo '{field}' não é permitido para recursos do tipo '{estrutura}'"
+            )
+
+    for key, value in recurso_data.items():
+        setattr(db_recurso, key, value)
+
+    session.add(db_recurso)
+    await session.commit()
+    await session.refresh(db_recurso)
+    return db_recurso
+
+@recurso_router.delete("/delete/{recurso_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_recurso(
+    recurso_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Exclui um recurso existente.
+
+    Parâmetros:
+    - `recurso_id` (int): ID do recurso a ser excluído.
+    - `session` (AsyncSession): sessão do banco.
+    - `current_user` (User): usuário autenticado (autor ou Coordenador exigido para permissão).
+
+    Regras de autorização:
+    - Apenas o autor do recurso ou usuários com `Perfil.Coordenador` podem excluir.
+
+    Retorno:
+    - 204 No Content em sucesso.
+
+    Erros possíveis:
+    - 401: não autenticado.
+    - 403: permissão negada para excluir.
+    - 404: recurso não encontrado.
+    """
+
+    statement = select(Recurso).where(Recurso.id == recurso_id)
+    result = await session.exec(statement)
+    recurso = result.first()
+
+    if not recurso:
+        raise HTTPException(status_code=404, detail="Recurso não encontrado")
+
+    # Permissão: apenas autor ou Coordenador podem deletar
+    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para excluir recurso")
+
+    # Se for UPLOAD, remover arquivo do MinIO
+    if recurso.estrutura == EstruturaRecurso.UPLOAD and recurso.storage_key:
+        try:
+            await s3_service.delete_file(recurso.storage_key)
+        except Exception as e:
+            # Log do erro, mas não falhar a exclusão do banco
+            print(f"Erro ao deletar arquivo do S3: {e}")
+
+    await session.delete(recurso)
+    await session.commit()

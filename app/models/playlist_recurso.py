@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 from sqlmodel import SQLModel, Field, Relationship
-from sqlalchemy import ForeignKeyConstraint, Index, Column, ForeignKey, UniqueConstraint
+from sqlalchemy import ForeignKeyConstraint, Index, UniqueConstraint
 
 if TYPE_CHECKING:
     from app.models.playlist import Playlist

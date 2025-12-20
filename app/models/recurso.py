@@ -1,10 +1,8 @@
-from typing import Optional
 from datetime import datetime, timezone
 from sqlmodel import SQLModel, Field
-from sqlalchemy import DateTime, Text, ForeignKeyConstraint, Index, Column, ForeignKey
+from sqlalchemy import DateTime, Text, ForeignKeyConstraint, Index, Column
 from app.enums.visibilidade import Visibilidade
 from app.enums.estrutura_recurso import EstruturaRecurso
-
 class Recurso(SQLModel, table=True):
     __tablename__ = "Recurso"
 
