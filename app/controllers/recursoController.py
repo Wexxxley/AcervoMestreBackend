@@ -18,9 +18,7 @@ from app.enums.estrutura_recurso import EstruturaRecurso
 from app.enums.perfil import Perfil
 from app.utils.pagination import PaginationParams, PaginatedResponse
 from app.services.s3_service import s3_service
-from app.dtos.recursoDtos import RecursoAssociarTag
 from app.models.tag import Tag
-
 
 recurso_router = APIRouter(prefix="/recursos", tags=["Recursos"])
 
@@ -300,6 +298,52 @@ async def create_recurso(
 
     return recurso_com_tags
 
+@recurso_router.post("/add_tag/{recurso_id}", status_code=status.HTTP_201_CREATED)
+async def adicionar_tag_ao_recurso(
+    recurso_id: int,
+    tag_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Associa uma tag existente a um recurso existente.
+    """
+    # 1. Verificar se o recurso existe
+    statement = select(Recurso).where(Recurso.id == recurso_id)
+    result = await session.exec(statement)
+    recurso = result.first()
+
+    if not recurso:
+        raise HTTPException(status_code=404, detail="Recurso não encontrado")
+
+    # 2. Verificar Permissão (Autor ou Coordenador)
+    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador):
+        raise HTTPException(status_code=403, detail="Permissão negada. Apenas autor ou coordenador podem editar.")
+
+    # 3. Verificar se a Tag existe
+    tag_statement = select(Tag).where(Tag.id == tag_id)
+    tag_result = await session.exec(tag_statement)
+    tag = tag_result.first()
+    
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag não encontrada")
+
+    # 4. Verificar se a associação já existe 
+    assoc_statement = select(RecursoTag).where(
+        RecursoTag.recurso_id == recurso_id,
+        RecursoTag.tag_id == tag_id
+    )
+    assoc_result = await session.exec(assoc_statement)
+    if assoc_result.first():
+        raise HTTPException(status_code=400, detail="Esta tag já está associada ao recurso")
+
+    # 5. Criar a associação
+    novo_link = RecursoTag(recurso_id=recurso_id, tag_id=tag_id)
+    session.add(novo_link)
+    await session.commit()
+
+    return {"message": "Tag associada com sucesso"}
+
 @recurso_router.post("/{recurso_id}/download", response_model=RecursoDownloadResponse)
 async def download_recurso(
     recurso_id: int,
@@ -508,53 +552,6 @@ async def delete_recurso(
 
     await session.delete(recurso)
     await session.commit()
-    
-    
-@recurso_router.post("/add_tag/{recurso_id}", status_code=status.HTTP_201_CREATED)
-async def adicionar_tag_ao_recurso(
-    recurso_id: int,
-    data: RecursoAssociarTag,
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Associa uma tag existente a um recurso existente.
-    """
-    # 1. Verificar se o recurso existe
-    statement = select(Recurso).where(Recurso.id == recurso_id)
-    result = await session.exec(statement)
-    recurso = result.first()
-
-    if not recurso:
-        raise HTTPException(status_code=404, detail="Recurso não encontrado")
-
-    # 2. Verificar Permissão (Autor ou Coordenador)
-    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador):
-        raise HTTPException(status_code=403, detail="Permissão negada. Apenas autor ou coordenador podem editar.")
-
-    # 3. Verificar se a Tag existe
-    tag_statement = select(Tag).where(Tag.id == data.tag_id)
-    tag_result = await session.exec(tag_statement)
-    tag = tag_result.first()
-    
-    if not tag:
-        raise HTTPException(status_code=404, detail="Tag não encontrada")
-
-    # 4. Verificar se a associação já existe (para evitar erro de chave duplicada)
-    assoc_statement = select(RecursoTag).where(
-        RecursoTag.recurso_id == recurso_id,
-        RecursoTag.tag_id == data.tag_id
-    )
-    assoc_result = await session.exec(assoc_statement)
-    if assoc_result.first():
-        raise HTTPException(status_code=400, detail="Esta tag já está associada ao recurso")
-
-    # 5. Criar a associação
-    novo_link = RecursoTag(recurso_id=recurso_id, tag_id=data.tag_id)
-    session.add(novo_link)
-    await session.commit()
-
-    return {"message": "Tag associada com sucesso"}
 
 @recurso_router.delete("/remove_tag{recurso_id}/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remover_tag_do_recurso(
