@@ -3,24 +3,43 @@ from sqlalchemy import func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.dtos.userDtos import UserCreate, UserRead, UserUpdate
+from app.enums.perfil import Perfil
 from app.enums.status import Status
 from app.models.user import User  
 from app.core.database import get_session 
 from app.core.security import RoleChecker, get_password_hash
 from sqlalchemy.exc import IntegrityError 
 from fastapi import Query
+from app.services.s3_service import s3_service
 from app.utils.pagination import PaginationParams
 from app.utils.pagination import PaginatedResponse
 from app.core.security import get_current_user 
 from fastapi import BackgroundTasks 
 from app.core.mail import send_activation_email
 from app.core.security import create_activation_token
+from typing import Optional
+from fastapi import UploadFile, File
 
 user_router = APIRouter(prefix="/users", tags=["Users"])
 
 allow_staff = RoleChecker(["Professor", "Coordenador", "Gestor"])
 allow_management = RoleChecker(["Coordenador", "Gestor"])
 allow_gestor = RoleChecker(["Gestor"])
+
+def preencher_url_perfil(user: User) -> UserRead:
+    """
+    Converte User (Banco) -> UserRead (DTO) e gera o link do S3.
+    """
+    # Cria o DTO base
+    dto = UserRead.model_validate(user)
+    
+    # Se tiver path_img, gera o link assinado
+    if user.path_img:
+        dto.url_perfil = s3_service.get_file_url(user.path_img, download=False)
+    else:
+        dto.url_perfil = None
+        
+    return dto
 
 @user_router.get("/get/{user_id}", response_model=UserRead, dependencies=[Depends(allow_staff)])
 async def get_user_by_id(user_id: int, session: AsyncSession = Depends(get_session)):
@@ -44,7 +63,7 @@ async def get_user_by_id(user_id: int, session: AsyncSession = Depends(get_sessi
     
     if not user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    return user
+    return preencher_url_perfil(user)
 
 @user_router.get("/get_all", response_model=PaginatedResponse[UserRead], dependencies=[Depends(allow_staff)])
 async def get_all_users(
@@ -94,7 +113,7 @@ async def get_all_users(
 
     # Retornar a estrutura PaginatedResponse
     return PaginatedResponse(
-        items=users,
+        items=[preencher_url_perfil(user) for user in users],
         total=total_items,
         page=pagination.page,
         per_page=pagination.per_page,
@@ -114,7 +133,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
     Permissões:
     - Qualquer usuário autenticado pode acessar esta rota.
     """
-    return current_user
+    return preencher_url_perfil(current_user)
 
 @user_router.post("/create", response_model=UserRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(allow_management)])
 async def create_user(
@@ -174,7 +193,7 @@ async def create_user(
             detail="Já existe um usuário cadastrado com este email."
         )
         
-    return db_user
+    return preencher_url_perfil(db_user)
 
 @user_router.post("/resend_invitation/{user_id}", status_code=status.HTTP_200_OK, dependencies=[Depends(allow_management)])
 async def resend_invitation(
@@ -252,7 +271,76 @@ async def update_user(user_id: int, user_input: UserUpdate, session: AsyncSessio
     session.add(db_user)
     await session.commit()
     await session.refresh(db_user)
-    return db_user
+    return preencher_url_perfil(db_user)
+
+
+@user_router.patch("/{user_id}/image", status_code=status.HTTP_200_OK)
+async def update_user_profile_image(
+    user_id: int,
+    file: Optional[UploadFile] = File(None),
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Atualiza ou remove a imagem de perfil de um usuário específico.
+    
+    Permissões:
+    - O próprio usuário pode alterar sua imagem.
+    - Um GESTOR pode alterar/remover a imagem de qualquer usuário (moderação).
+    
+    Comportamento:
+    - Se enviar arquivo (`file`): Substitui a imagem atual pela nova.
+    - Se NÃO enviar arquivo: Remove a imagem atual (útil para moderação).
+    """
+
+    # 1. Buscar o usuário alvo
+    statement = select(User).where(User.id == user_id)
+    result = await session.exec(statement)
+    target_user = result.first()
+
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    # 2. Verificar Permissões (Próprio usuário OU Gestor)
+    is_self = current_user.id == target_user.id
+    is_gestor = current_user.perfil == Perfil.Gestor
+    
+    if not (is_self or is_gestor):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Permissão negada. Você não pode alterar a imagem deste usuário."
+        )
+
+    # 3. Se o usuário alvo JÁ tem uma foto, deletamos ela do S3 primeiro.
+    if target_user.path_img:
+        try:
+            await s3_service.delete_file(target_user.path_img)
+        except Exception as e:
+            print(f"Aviso: Erro ao limpar imagem antiga do S3: {e}")
+
+    url_visualizacao = None
+    msg = ""
+
+    # 4. Atualizar ou Remover
+    if file:
+        upload_result = await s3_service.upload_file(file)
+        target_user.path_img = upload_result["storage_key"]
+        url_visualizacao = s3_service.get_file_url(target_user.path_img, download=False)
+        msg = "Imagem de perfil atualizada com sucesso."
+    else:
+        target_user.path_img = None
+        msg = "Imagem de perfil removida com sucesso."
+
+    # 5. Salva no Banco
+    session.add(target_user)
+    await session.commit()
+    await session.refresh(target_user)
+
+    return {
+        "message": msg,
+        "user_id": target_user.id,
+        "url_perfil": url_visualizacao
+    }
 
 @user_router.patch("/restore/{user_id}", response_model=UserRead, dependencies=[Depends(allow_gestor)])
 async def restore_user(
@@ -304,7 +392,7 @@ async def restore_user(
     await session.commit()
     await session.refresh(user)
     
-    return user
+    return preencher_url_perfil(user)
 
 @user_router.delete("/delete/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(allow_gestor)])
 async def delete_user(user_id: int, session: AsyncSession = Depends(get_session)):
@@ -343,4 +431,3 @@ async def delete_user(user_id: int, session: AsyncSession = Depends(get_session)
         session.add(user)
     
     await session.commit()
-

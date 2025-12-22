@@ -27,7 +27,6 @@ class UserRead(SQLModel):
     email: EmailStr
     perfil: Perfil
     status: Status
-    path_img: str | None = None
+    url_perfil: str | None = None 
     data_nascimento: date | None = None
-
     model_config = ConfigDict(from_attributes=True)

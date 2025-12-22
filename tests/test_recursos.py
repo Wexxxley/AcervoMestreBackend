@@ -111,8 +111,7 @@ async def test_create_recurso_url(client, token):
     assert response.status_code == HTTPStatus.CREATED
     data = response.json()
     assert data['estrutura'] == 'URL'
-    assert data['url_externa'] == 'https://example.com'
-
+    assert data['link_acesso'] == 'https://example.com'
 
 @pytest.mark.asyncio
 async def test_create_recurso_without_auth(client):
