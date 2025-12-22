@@ -167,3 +167,6 @@ class RecursoDownloadResponse(SQLModel):
     message: str
     download_url: str | None = None
     downloads: int
+    
+class RecursoAssociarTag(SQLModel):
+    tag_id: int
