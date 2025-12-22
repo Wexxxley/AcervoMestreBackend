@@ -13,7 +13,7 @@ from app.models.recurso_tag import RecursoTag
 from app.models.tag import Tag
 from app.models.user import User
 from app.core.database import get_session
-from app.core.security import get_current_user, get_current_user_optional
+from app.core.security import RoleChecker, get_current_user, get_current_user_optional
 from app.enums.visibilidade import Visibilidade
 from app.enums.estrutura_recurso import EstruturaRecurso
 from app.enums.perfil import Perfil
@@ -22,9 +22,11 @@ from app.services.s3_service import s3_service
 
 recurso_router = APIRouter(prefix="/recursos", tags=["Recursos"])
 
-# ============================================================================
-# Função Auxiliar (Interna)
-# ============================================================================
+allow_staff = RoleChecker(["Professor", "Coordenador", "Gestor"])
+allow_management = RoleChecker(["Coordenador", "Gestor"])
+allow_gestor = RoleChecker(["Gestor"])
+
+# Função Auxiliar
 def preencher_link_acesso(recurso: Recurso) -> RecursoRead:
     """
     Converte o model de banco (Recurso) para o DTO (RecursoRead)
@@ -73,10 +75,6 @@ def preencher_link_acesso(recurso: Recurso) -> RecursoRead:
         dto.link_acesso = recurso.url_externa
         
     return dto
-
-# ============================================================================
-# Endpoints de Leitura
-# ============================================================================
 
 @recurso_router.get("/get/{recurso_id}", response_model=RecursoRead)
 async def get_recurso_by_id(
@@ -131,9 +129,7 @@ async def get_recurso_by_id(
     )
     await session.commit()
 
-    # 3. Segunda busca (CRUCIAL: Recarregar tags após commit)
-    # Como houve commit, o objeto anterior pode estar expirado.
-    # Buscamos novamente garantindo que as tags venham juntas para o retorno.
+    # 3. Segunda busca (Recarregar tags após commit)
     statement = (
         select(Recurso)
         .where(Recurso.id == recurso_id)
@@ -232,11 +228,7 @@ async def get_all_recursos(
         total_pages=total_pages
     )
 
-# ============================================================================
-# Endpoints de Escrita
-# ============================================================================
-
-@recurso_router.post("/create", response_model=RecursoRead, status_code=status.HTTP_201_CREATED)
+@recurso_router.post("/create", response_model=RecursoRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(allow_staff)])
 async def create_recurso(
     titulo: str = Form(...),
     descricao: str = Form(...),
@@ -281,20 +273,16 @@ async def create_recurso(
     - 500: Erro no upload.
     """
 
-    # --- PROCESSAMENTO DE TAGS (Swagger Fix) ---
     ids_tags_finais: List[int] = []
     for item in tag_ids:
-        # Caso Swagger: "4,1"
         if "," in item:
             partes = item.split(",")
             for p in partes:
                 if p.strip().isdigit():
                     ids_tags_finais.append(int(p.strip()))
-        # Caso Postman: "4"
         elif item.strip().isdigit():
             ids_tags_finais.append(int(item.strip()))
     ids_tags_finais = list(set(ids_tags_finais)) # Remove duplicatas
-    # -------------------------------------------
 
     # Preparar dados base do recurso
     recurso_data = {
@@ -368,7 +356,7 @@ async def create_recurso(
 
     return preencher_link_acesso(recurso_com_tags)
 
-@recurso_router.patch("/patch/{recurso_id}", response_model=RecursoRead)
+@recurso_router.patch("/patch/{recurso_id}", response_model=RecursoRead, dependencies=[Depends(allow_staff)])
 async def update_recurso(
     recurso_id: int, 
     recurso_in: RecursoUpdate, 
@@ -384,7 +372,7 @@ async def update_recurso(
     - `current_user` (User): usuário autenticado (autor ou Coordenador exigido para permissão).
 
     Regras de autorização:
-    - Apenas o autor do recurso ou usuários com `Perfil.Coordenador` podem editar.
+    - Apenas o autor do recurso ou coordenadores ou gestores podem editar.
 
     Retorna:
     - `RecursoRead` com os dados atualizados e link de acesso.
@@ -403,13 +391,12 @@ async def update_recurso(
     if not db_recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
-    # Permissão: apenas autor ou Coordenador podem editar
-    if not (current_user.id == db_recurso.autor_id or current_user.perfil == Perfil.Coordenador):
+    # Permissão: apenas autor ou Coordenador ou gestor podem editar
+    if not (current_user.id == db_recurso.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
 
     recurso_data = recurso_in.model_dump(exclude_unset=True)
 
-    # Validate that updated fields are compatible with the resource's estrutura type
     estrutura_allowed_fields = {
         "UPLOAD": {"titulo", "descricao", "visibilidade", "is_destaque", "storage_key", "mime_type", "tamanho_bytes"},
         "URL": {"titulo", "descricao", "visibilidade", "is_destaque", "url_externa"},
@@ -441,7 +428,7 @@ async def update_recurso(
     
     return preencher_link_acesso(recurso_atualizado)
 
-@recurso_router.delete("/delete/{recurso_id}", status_code=status.HTTP_204_NO_CONTENT)
+@recurso_router.delete("/delete/{recurso_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(allow_staff)])
 async def delete_recurso(
     recurso_id: int,
     session: AsyncSession = Depends(get_session),
@@ -455,7 +442,7 @@ async def delete_recurso(
     - `current_user` (User): usuário autenticado (autor ou Coordenador exigido para permissão).
 
     Regras de autorização:
-    - Apenas o autor do recurso ou usuários com `Perfil.Coordenador` podem excluir.
+    - Apenas o autor do recurso ou coordenadores ou gestores podem excluir.
 
     Retorno:
     - 204 No Content em sucesso.
@@ -473,8 +460,7 @@ async def delete_recurso(
     if not recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
-    # Permissão: apenas autor ou Coordenador podem deletar
-    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador):
+    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para excluir recurso")
 
     # Se for UPLOAD, remover arquivo do MinIO
@@ -488,11 +474,7 @@ async def delete_recurso(
     await session.delete(recurso)
     await session.commit()
 
-# ============================================================================
-# Endpoints de Gerenciamento de Tags
-# ============================================================================
-
-@recurso_router.post("/add_tag/{recurso_id}", status_code=status.HTTP_201_CREATED)
+@recurso_router.post("/add_tag/{recurso_id}", status_code=status.HTTP_201_CREATED, dependencies=[Depends(allow_staff)])
 async def adicionar_tag_ao_recurso(
     recurso_id: int,
     tag_id: int,
@@ -510,9 +492,9 @@ async def adicionar_tag_ao_recurso(
     if not recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
-    # 2. Verificar Permissão (Autor ou Coordenador)
-    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador):
-        raise HTTPException(status_code=403, detail="Permissão negada. Apenas autor ou coordenador podem editar.")
+    # 2. Verificar Permissão (Autor ou Coordenador ou gestor)
+    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
+        raise HTTPException(status_code=403, detail="Permissão negada. Apenas autor ou coordenador ou gestor podem editar.")
 
     # 3. Verificar se a Tag existe
     tag_statement = select(Tag).where(Tag.id == tag_id)
@@ -538,7 +520,7 @@ async def adicionar_tag_ao_recurso(
 
     return {"message": "Tag associada com sucesso"}
 
-@recurso_router.delete("/remove_tag/{recurso_id}/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+@recurso_router.delete("/remove_tag/{recurso_id}/{tag_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(allow_staff)])
 async def remover_tag_do_recurso(
     recurso_id: int,
     tag_id: int,
@@ -558,7 +540,7 @@ async def remover_tag_do_recurso(
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
     # 2. Verificar Permissão
-    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador):
+    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
         raise HTTPException(status_code=403, detail="Permissão negada")
 
     # 3. Buscar a associação específica

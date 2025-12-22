@@ -143,6 +143,8 @@ async def create_user(
 ):
     """Cria um novo usuário (Cadastro ou Convite).
 
+    Sendo um cadastro feito por um gestor ou um convite enviado para um novo usuaário, a foto de perfil so pode ser adicionada posteriormente pelo próprio usuário ou por um gestor.
+
     Parâmetros:
     - `user_in` (UserCreate): dados do novo usuário.
 
@@ -173,7 +175,6 @@ async def create_user(
         user_dict["status"] = Status.AguardandoAtivacao 
         
         token = create_activation_token(user_in.email) # Gerar Token (Jwt específico para ativação)
-        
         background_tasks.add_task(send_activation_email, user_in.email, token) # Agendar envio de email 
         
     if "path_img" not in user_dict:

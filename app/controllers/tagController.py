@@ -4,17 +4,20 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
 from app.core.database import get_session
-from app.core.security import get_current_user
+from app.core.security import RoleChecker, get_current_user
 from app.models.user import User
 from app.models.tag import Tag
 from app.dtos.tagDtos import TagCreate, TagRead
 
 tag_router = APIRouter(prefix="/tags", tags=["Tags"])
 
-@tag_router.get("/get_all", response_model=list[TagRead])
+allow_staff = RoleChecker(["Professor", "Coordenador", "Gestor"])
+allow_management = RoleChecker(["Coordenador", "Gestor"])
+allow_gestor = RoleChecker(["Gestor"])
+
+@tag_router.get("/get_all", response_model=list[TagRead], dependencies=[Depends(allow_staff)])
 async def obter_todas_tags(
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
 ):
     """Retorna todas as tags cadastradas para uso em autocomplete.
 
@@ -28,11 +31,10 @@ async def obter_todas_tags(
     result = await session.exec(statement)
     return result.all()
 
-@tag_router.post("/create", response_model=TagRead, status_code=201)
+@tag_router.post("/create", response_model=TagRead, status_code=201, dependencies=[Depends(allow_management)])
 async def criar_tag(
     data: TagCreate,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
 ):
     """Cria uma nova tag no sistema.
 
@@ -65,7 +67,7 @@ async def criar_tag(
         )
 
 
-@tag_router.delete("/delete/{tag_id}", status_code=204)
+@tag_router.delete("/delete/{tag_id}", status_code=204, dependencies=[Depends(allow_management)])
 async def deletar_tag(
     tag_id: int,
     session: AsyncSession = Depends(get_session),
