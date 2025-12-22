@@ -1,6 +1,6 @@
 from sqlmodel import SQLModel
 from datetime import datetime
-from pydantic import Field, model_validator, ValidationError, ConfigDict
+from pydantic import Field, model_validator, ConfigDict
 from urllib.parse import urlparse
 from app.dtos.tagDtos import TagRead
 from app.enums.visibilidade import Visibilidade
@@ -154,8 +154,8 @@ class RecursoRead(SQLModel):
     conteudo_markdown: str | None = None
     storage_key: str | None = None
     mime_type: str | None = None
-    tamanho_bytes: int | None = None
-    url_externa: str | None = None
+    tamanho_bytes: int | None = None    
+    link_acesso: str | None = None
     
     criado_em: datetime
 

@@ -1,10 +1,9 @@
 import boto3
 import uuid
-from typing import BinaryIO
+from typing import BinaryIO, Optional
 from fastapi import UploadFile, HTTPException, status
 from botocore.exceptions import ClientError
 from app.core.config import settings
-
 
 class S3Service:
     """Service para gerenciar uploads e downloads de arquivos no MinIO/S3."""
@@ -23,21 +22,6 @@ class S3Service:
     async def upload_file(self, file: UploadFile) -> dict:
         """
         Faz upload de um arquivo para o MinIO/S3.
-        
-        Args:
-            file (UploadFile): Arquivo enviado via multipart/form-data
-            
-        Returns:
-            dict: Dicionário com metadados do arquivo:
-                - storage_key (str): Chave única do arquivo no bucket
-                - mime_type (str): Tipo MIME do arquivo
-                - tamanho_bytes (int): Tamanho do arquivo em bytes
-                - filename (str): Nome original do arquivo
-                
-        Raises:
-            HTTPException (400): Se o tipo de arquivo não for permitido
-            HTTPException (413): Se o arquivo exceder o tamanho máximo
-            HTTPException (500): Se ocorrer erro no upload
         """
         # Validar tipo de arquivo
         if file.content_type not in settings.ALLOWED_MIME_TYPES:
@@ -69,6 +53,8 @@ class S3Service:
                 Key=storage_key,
                 Body=content,
                 ContentType=file.content_type,
+                # Dica: Adicionar ContentDisposition no upload ajuda se acessar o link direto
+                # Mas vamos controlar isso dinamicamente no get_file_url
             )
             
             return {
@@ -87,15 +73,6 @@ class S3Service:
     async def delete_file(self, storage_key: str) -> bool:
         """
         Remove um arquivo do MinIO/S3.
-        
-        Args:
-            storage_key (str): Chave do arquivo no bucket
-            
-        Returns:
-            bool: True se removido com sucesso
-            
-        Raises:
-            HTTPException (500): Se ocorrer erro na remoção
         """
         try:
             self.s3_client.delete_object(
@@ -110,20 +87,39 @@ class S3Service:
                 detail=f"Erro ao deletar arquivo: {str(e)}"
             )
     
-    def get_file_url(self, storage_key: str) -> str:
+    def get_file_url(self, storage_key: str, expiration: int = 3600, download: bool = True) -> Optional[str]:
         """
-        Retorna a URL pública para download do arquivo.
+        Gera uma URL assinada (Presigned URL) para acesso ao arquivo.
         
         Args:
             storage_key (str): Chave do arquivo no bucket
+            expiration (int): Tempo de expiração do link em segundos (Padrão: 1 hora)
+            download (bool): 
+                - Se True: Força o download (attachment).
+                - Se False: Tenta abrir no navegador (inline).
             
         Returns:
-            str: URL completa para acesso ao arquivo
+            str: URL assinada temporária ou None em caso de erro.
         """
-        # Como o bucket está configurado com política pública (download),
-        # podemos retornar a URL direta
-        return f"{settings.S3_ENDPOINT_URL}/{self.bucket_name}/{storage_key}"
-
+        try:
+            # Define o comportamento do navegador
+            disposition = 'attachment' if download else 'inline'
+            
+            response = self.s3_client.generate_presigned_url(
+                'get_object',
+                Params={
+                    'Bucket': self.bucket_name,
+                    'Key': storage_key,
+                    'ResponseContentDisposition': disposition,
+                    # Opcional: Forçar o Content-Type ajuda o navegador a entender o arquivo
+                    # 'ResponseContentType': 'application/pdf' 
+                },
+                ExpiresIn=expiration
+            )
+            return response
+        except ClientError as e:
+            print(f"Erro ao gerar URL assinada: {e}")
+            return None
 
 # Instância global do serviço
 s3_service = S3Service()
