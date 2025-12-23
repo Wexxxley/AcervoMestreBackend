@@ -7,11 +7,11 @@ from app.models.tag import Tag
 # ==========================================
 
 @pytest.mark.asyncio
-async def test_criar_tag_sucesso(client, token):
+async def test_criar_tag_sucesso(client, coordenador_token):
     """Deve criar uma nova tag com sucesso."""
     response = await client.post(
         "/tags/create",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {coordenador_token}"},
         json={"nome": "Nova Tag"}
     )
 
@@ -21,7 +21,7 @@ async def test_criar_tag_sucesso(client, token):
     assert "id" in data
 
 @pytest.mark.asyncio
-async def test_criar_tag_duplicada(client, token, session):
+async def test_criar_tag_duplicada(client, coordenador_token, session):
     """Não deve permitir criar tags com nomes duplicados."""
     # 1. Cria a primeira tag diretamente no banco ou via API
     tag_existente = Tag(nome="Python")
@@ -31,7 +31,7 @@ async def test_criar_tag_duplicada(client, token, session):
     # 2. Tenta criar a mesma tag via API
     response = await client.post(
         "/tags/create",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {coordenador_token}"},
         json={"nome": "Python"}
     )
 
@@ -54,7 +54,7 @@ async def test_criar_tag_sem_auth(client):
 # ==========================================
 
 @pytest.mark.asyncio
-async def test_listar_tags(client, token, session):
+async def test_listar_tags(client, coordenador_token, session):
     """Deve listar todas as tags ordenadas por nome."""
     # Cria algumas tags para garantir que a lista não está vazia
     session.add(Tag(nome="Zebra"))
@@ -63,7 +63,7 @@ async def test_listar_tags(client, token, session):
 
     response = await client.get(
         "/tags/get_all",
-        headers={"Authorization": f"Bearer {token}"}
+        headers={"Authorization": f"Bearer {coordenador_token}"}
     )
 
     assert response.status_code == HTTPStatus.OK
@@ -79,7 +79,7 @@ async def test_listar_tags(client, token, session):
 # ==========================================
 
 @pytest.mark.asyncio
-async def test_deletar_tag_sucesso(client, token, session):
+async def test_deletar_tag_sucesso(client, coordenador_token, session):
     """Deve deletar uma tag existente."""
     # 1. Cria a tag
     tag = Tag(nome="Tag Para Deletar")
@@ -90,7 +90,7 @@ async def test_deletar_tag_sucesso(client, token, session):
     # 2. Deleta via API
     response = await client.delete(
         f"/tags/delete/{tag.id}",
-        headers={"Authorization": f"Bearer {token}"}
+        headers={"Authorization": f"Bearer {coordenador_token}"}
     )
 
     assert response.status_code == HTTPStatus.NO_CONTENT
@@ -102,11 +102,11 @@ async def test_deletar_tag_sucesso(client, token, session):
     assert result.first() is None
 
 @pytest.mark.asyncio
-async def test_deletar_tag_inexistente(client, token):
+async def test_deletar_tag_inexistente(client, coordenador_token):
     """Deve retornar 404 ao tentar deletar tag que não existe."""
     response = await client.delete(
         "/tags/delete/999999",
-        headers={"Authorization": f"Bearer {token}"}
+        headers={"Authorization": f"Bearer {coordenador_token}"}
     )
 
     assert response.status_code == HTTPStatus.NOT_FOUND

@@ -25,7 +25,7 @@ async def login(credentials: LoginRequest, session: AsyncSession = Depends(get_s
     - `credentials` (LoginRequest): Email e senha do usuário.
 
     Retorna:
-    - `TokenResponse`: Access Token (curta duração) e Refresh Token (longa duração).
+    - `TokenResponse`: Access Token (30 minutos) e Refresh Token (7 dias).
 
     Erros possíveis:
     - 401: E-mail ou senha incorretos.
@@ -174,8 +174,6 @@ async def activate_account(body: ActivateAccountRequest, session: AsyncSession =
     session.add(user)
     await session.commit()
     return {"message": "Conta ativada com sucesso! Você já pode fazer login."}
-
-
 
 @auth_router.post("/forgot_password", status_code=status.HTTP_200_OK)
 async def forgot_password(

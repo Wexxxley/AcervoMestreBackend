@@ -151,7 +151,7 @@ async def listar_playlists(
         total=total_items,
     )
 
-@playlist_router.post("/create", response_model=PlaylistRead, status_code=201, ependencies=[Depends(allow_staff)])
+@playlist_router.post("/create", response_model=PlaylistRead, status_code=201, dependencies=[Depends(allow_staff)])
 async def criar_playlist(
     data: PlaylistCreate,
     session: AsyncSession = Depends(get_session),
