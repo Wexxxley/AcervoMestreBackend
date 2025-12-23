@@ -2,36 +2,46 @@ import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    """Configurações da aplicação carregadas de variáveis de ambiente."""
+    """Configurações da aplicação."""
     
-    # Database
-    DATABASE_URL: str = "postgresql+asyncpg://user_acervo:senha_segura@localhost:5432/acervo_mestre_db"
+    # --- Database ---
+    DATABASE_URL: str 
     
-    # JWT
-    SECRET_KEY: str = "your-secret-key-here-change-in-production"
+    # --- JWT & Segurança ---
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
-    # MinIO / S3
-    AWS_ACCESS_KEY_ID: str = "admin"
-    AWS_SECRET_ACCESS_KEY: str = "password123"
-    S3_BUCKET_NAME: str = "acervo-mestre"
-    S3_ENDPOINT_URL: str = "http://localhost:9000"
-    S3_REGION: str = "us-east-1"  # MinIO aceita qualquer região
+    # --- MinIO / S3 ---
+    AWS_ACCESS_KEY_ID: str
+    AWS_SECRET_ACCESS_KEY: str
+    S3_BUCKET_NAME: str
+    S3_ENDPOINT_URL: str
+    S3_REGION: str = "us-east-1"
     
-    # Limites de upload
-    MAX_FILE_SIZE_MB: int = 100  # Tamanho máximo de arquivo em MB
+    # --- Limites de upload ---
+    MAX_FILE_SIZE_MB: int = 100
     ALLOWED_MIME_TYPES: list[str] = [
         "application/pdf",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # DOCX
-        "application/msword",  # DOC
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/msword",
         "video/mp4",
         "image/jpeg",
         "image/png",
         "image/gif",
     ]
 
+    # --- Email (Mailtrap)
+    MAIL_USERNAME: str
+    MAIL_PASSWORD: str
+    MAIL_FROM: str = "no-reply@acervomestre.com"
+    MAIL_PORT: int = 2525
+    MAIL_SERVER: str = "sandbox.smtp.mailtrap.io"
+
+    # --- Frontend ---
+    FRONTEND_URL: str = "http://localhost:3000"
+
+    # Lê do arquivo .env
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-# Instância global das configurações
 settings = Settings()

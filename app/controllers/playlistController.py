@@ -73,12 +73,14 @@ async def obter_playlist_por_id(
     Erros possíveis:
     - 404: caso a playlist não seja encontrada.
     """
-    # Eager load playlist com recursos e seus objetos Recurso aninhados
+   
     statement = (
         select(Playlist)
         .where(Playlist.id == playlist_id)
         .options(
-            selectinload(Playlist.recursos).selectinload(PlaylistRecurso.recurso)
+            selectinload(Playlist.recursos)
+            .selectinload(PlaylistRecurso.recurso)
+            .selectinload(Recurso.tags) 
         )
     )
     result = await session.exec(statement)
@@ -233,12 +235,25 @@ async def adicionar_recurso_playlist(
             detail="Recurso já está presente nesta playlist"
         )
     
-    # Obter a próxima ordem (última ordem + 1)
+    # Obter a próxima ordem
     statement_ordem = select(func.max(PlaylistRecurso.ordem)).where(
         PlaylistRecurso.playlist_id == playlist_id
     )
     resultado_ordem = await session.exec(statement_ordem)
-    proxima_ordem = (resultado_ordem.one() or -1) + 1
+    max_ordem = resultado_ordem.first()
+    
+    # CORREÇÃO AQUI: Verifica explicitamente se é None
+    if max_ordem is None:
+        proxima_ordem = 0
+    else:
+        proxima_ordem = max_ordem + 1
+
+    # Criar associação
+    playlist_recurso = PlaylistRecurso(
+        playlist_id=playlist_id,
+        recurso_id=data.recurso_id,
+        ordem=proxima_ordem,
+    )
 
     # Criar associação
     playlist_recurso = PlaylistRecurso(
@@ -313,13 +328,17 @@ async def editar_playlist(
     session.add(playlist)
     await session.commit()
     
-    # Eagerly load recursos relationship before returning
     result = await session.exec(
         select(Playlist)
-        .options(selectinload(Playlist.recursos))
+        .options(
+            selectinload(Playlist.recursos)
+            .selectinload(PlaylistRecurso.recurso)
+            .selectinload(Recurso.tags)
+        )
         .where(Playlist.id == playlist.id)
     )
     playlist_with_recursos = result.one()
+    
     return playlist_with_recursos
 
 @playlist_router.put("/update/{playlist_id}/reordenar", status_code=200, dependencies=[Depends(allow_staff)])
@@ -430,6 +449,17 @@ async def deletar_playlist(
     if not (current_user.id == playlist.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
     
+    statement_vinculos = select(PlaylistRecurso).where(
+        PlaylistRecurso.playlist_id == playlist_id
+    )
+    result = await session.exec(statement_vinculos)
+    vinculos = result.all()
+    
+    for vinculo in vinculos:
+        await session.delete(vinculo)
+    
+    await session.flush() 
+
     await session.delete(playlist)
     await session.commit()
 
@@ -475,10 +505,10 @@ async def remover_recurso_playlist(
             detail="Recurso não encontrado nesta playlist"
         )
     
-    # Deletar associação
     await session.delete(playlist_recurso)
     
-    # Reordenar os recursos restantes para não haver lacunas
+    await session.flush() 
+    
     statement_reordenar = select(PlaylistRecurso).where(
         PlaylistRecurso.playlist_id == playlist_id
     ).order_by(PlaylistRecurso.ordem)

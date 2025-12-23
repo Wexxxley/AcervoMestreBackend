@@ -152,6 +152,12 @@ async def create_user(
     - **Fluxo 1 (Com Senha):** Se a senha for fornecida, cria o usuário como 'Ativo'.
     - **Fluxo 2 (Sem Senha):** Se a senha não for fornecida, define status como 'AguardandoAtivacao', gera token e agenda envio de email de convite.
     - Define avatar como None se não informado.
+    
+    Perfis:
+    - `Gestor`
+    - `Coordenador`
+    - `Professor`
+    - `Aluno`
 
     Retorna:
     - `UserRead` com os dados do usuário criado (HTTP 201).
