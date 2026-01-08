@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     S3_ENDPOINT_URL: str = "http://localhost:9000"
     S3_REGION: str = "us-east-1"  # MinIO aceita qualquer região
     
+    # Supabase Storage
+    SUPABASE_URL: str = ""
+    SUPABASE_KEY: str = ""
+    SUPABASE_BUCKET_NAME: str = "recursos"
+    
     # Limites de upload
     MAX_FILE_SIZE_MB: int = 100  # Tamanho máximo de arquivo em MB
     ALLOWED_MIME_TYPES: list[str] = [
