@@ -255,13 +255,6 @@ async def adicionar_recurso_playlist(
         ordem=proxima_ordem,
     )
 
-    # Criar associação
-    playlist_recurso = PlaylistRecurso(
-        playlist_id=playlist_id,
-        recurso_id=data.recurso_id,
-        ordem=proxima_ordem,
-    )
-
     session.add(playlist_recurso)
 
     try:
