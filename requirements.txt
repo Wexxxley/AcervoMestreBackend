@@ -21,7 +21,7 @@ argon2-cffi==25.1.0
 # Email & Storage
 fastapi-mail==1.6.1
 boto3==1.42.10
-supabase==2.13.2
+supabase==2.27.1
 
 # Utilitários
 requests==2.32.5
