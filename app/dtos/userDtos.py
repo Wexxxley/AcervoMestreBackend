@@ -9,8 +9,7 @@ class UserCreate(SQLModel):
     nome: str
     email: EmailStr
     perfil: Perfil
-    senha: str | None = None  # Opcional (para fluxo de convite)    
-    path_img: str | None = None 
+    senha: str | None = None  
     data_nascimento: date | None = None
 
 class UserUpdate(SQLModel):
@@ -27,7 +26,6 @@ class UserRead(SQLModel):
     email: EmailStr
     perfil: Perfil
     status: Status
-    path_img: str | None = None
+    url_perfil: str | None = None 
     data_nascimento: date | None = None
-
     model_config = ConfigDict(from_attributes=True)

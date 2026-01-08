@@ -9,7 +9,6 @@ from app.models.recurso import Recurso
 from app.enums.perfil import Perfil
 from app.enums.status import Status
 
-
 @pytest.mark.asyncio
 async def test_create_user_in_db(session, mock_db_time):
     """Deve criar usuário no banco com timestamps."""
@@ -93,7 +92,6 @@ async def test_user_relationship_with_recursos(session, user):
     recursos = result.scalars().all()
     
     assert len(recursos) == 3
-
 
 @pytest.mark.asyncio
 async def test_delete_cascade_behavior(session, user):

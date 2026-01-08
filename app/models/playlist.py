@@ -1,7 +1,7 @@
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from datetime import datetime, timezone
 from sqlmodel import SQLModel, Field, Relationship
-from sqlalchemy import DateTime, ForeignKeyConstraint, Index, Column, ForeignKey
+from sqlalchemy import DateTime, ForeignKeyConstraint, Index, Column
 
 if TYPE_CHECKING:
     from app.models.playlist_recurso import PlaylistRecurso

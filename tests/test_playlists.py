@@ -8,8 +8,9 @@ import pytest
 @pytest.mark.asyncio
 async def test_create_playlist(client, token):
     """Deve criar playlist."""
+    # Rota corrigida: /playlists/create
     response = await client.post(
-        '/playlists/',
+        '/playlists/create',
         headers={'Authorization': f'Bearer {token}'},
         json={
             'titulo': 'Minha Playlist',
@@ -25,8 +26,9 @@ async def test_create_playlist(client, token):
 @pytest.mark.asyncio
 async def test_create_playlist_without_auth(client):
     """Não deve criar playlist sem autenticação."""
+    # Rota corrigida: /playlists/create
     response = await client.post(
-        '/playlists/',
+        '/playlists/create',
         json={
             'titulo': 'Tentativa Playlist',
         },
@@ -38,7 +40,8 @@ async def test_create_playlist_without_auth(client):
 @pytest.mark.asyncio
 async def test_get_playlist_by_id(client, playlist):
     """Deve retornar playlist por ID."""
-    response = await client.get(f'/playlists/{playlist.id}')
+    # Rota corrigida: /playlists/get/{id}
+    response = await client.get(f'/playlists/get/{playlist.id}')
     
     assert response.status_code == HTTPStatus.OK
     data = response.json()
@@ -49,7 +52,8 @@ async def test_get_playlist_by_id(client, playlist):
 @pytest.mark.asyncio
 async def test_list_playlists(client, playlist):
     """Deve listar playlists."""
-    response = await client.get('/playlists?page=1&per_page=10')
+    # Rota corrigida: /playlists/get_all
+    response = await client.get('/playlists/get_all?page=1&per_page=10')
     
     assert response.status_code == HTTPStatus.OK
     data = response.json()
@@ -59,8 +63,9 @@ async def test_list_playlists(client, playlist):
 @pytest.mark.asyncio
 async def test_update_playlist_as_author(client, playlist, token):
     """Autor deve atualizar playlist."""
+    # Rota corrigida: /playlists/update/{id}
     response = await client.put(
-        f'/playlists/{playlist.id}',
+        f'/playlists/update/{playlist.id}',
         headers={'Authorization': f'Bearer {token}'},
         json={
             'titulo': 'Título Atualizado',
@@ -78,8 +83,9 @@ async def test_update_playlist_not_author(client, playlist, session, other_user)
     from app.core.security import create_access_token
     other_token = create_access_token(other_user.id)
     
+    # Rota corrigida: /playlists/update/{id}
     response = await client.put(
-        f'/playlists/{playlist.id}',
+        f'/playlists/update/{playlist.id}',
         headers={'Authorization': f'Bearer {other_token}'},
         json={
             'titulo': 'Tentativa',
@@ -92,8 +98,9 @@ async def test_update_playlist_not_author(client, playlist, session, other_user)
 @pytest.mark.asyncio
 async def test_delete_playlist_as_author(client, playlist, token):
     """Autor deve deletar playlist."""
+    # Rota corrigida: /playlists/delete/{id}
     response = await client.delete(
-        f'/playlists/{playlist.id}',
+        f'/playlists/delete/{playlist.id}',
         headers={'Authorization': f'Bearer {token}'},
     )
     
@@ -103,8 +110,9 @@ async def test_delete_playlist_as_author(client, playlist, token):
 @pytest.mark.asyncio
 async def test_add_recurso_to_playlist(client, playlist, recurso, token):
     """Deve adicionar recurso à playlist."""
+    # Rota corrigida: /playlists/add_recurso/{id}
     response = await client.post(
-        f'/playlists/{playlist.id}/recursos',
+        f'/playlists/add_recurso/{playlist.id}',
         headers={'Authorization': f'Bearer {token}'},
         json={
             'recurso_id': recurso.id,
@@ -117,16 +125,18 @@ async def test_add_recurso_to_playlist(client, playlist, recurso, token):
 @pytest.mark.asyncio
 async def test_add_recurso_duplicate(client, playlist, recurso, token):
     """Não deve adicionar recurso duplicado."""
+    # Rota corrigida: /playlists/add_recurso/{id}
+    
     # Adicionar primeira vez
     await client.post(
-        f'/playlists/{playlist.id}/recursos',
+        f'/playlists/add_recurso/{playlist.id}',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_id': recurso.id},
     )
     
     # Tentar adicionar novamente
     response = await client.post(
-        f'/playlists/{playlist.id}/recursos',
+        f'/playlists/add_recurso/{playlist.id}',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_id': recurso.id},
     )
@@ -137,16 +147,16 @@ async def test_add_recurso_duplicate(client, playlist, recurso, token):
 @pytest.mark.asyncio
 async def test_remove_recurso_from_playlist(client, playlist, recurso, token):
     """Deve remover recurso da playlist."""
-    # Adicionar recurso
+    # Adicionar recurso primeiro
     await client.post(
-        f'/playlists/{playlist.id}/recursos',
+        f'/playlists/add_recurso/{playlist.id}',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_id': recurso.id},
     )
     
-    # Remover recurso
+    # Rota corrigida: /playlists/delete_recurso/{playlist_id}/{recurso_id}
     response = await client.delete(
-        f'/playlists/{playlist.id}/recursos/{recurso.id}',
+        f'/playlists/delete_recurso/{playlist.id}/{recurso.id}',
         headers={'Authorization': f'Bearer {token}'},
     )
     
@@ -156,7 +166,8 @@ async def test_remove_recurso_from_playlist(client, playlist, recurso, token):
 @pytest.mark.asyncio
 async def test_get_playlist_not_found(client):
     """Deve retornar 404 para playlist inexistente."""
-    response = await client.get('/playlists/99999')
+    # Rota corrigida: /playlists/get/{id}
+    response = await client.get('/playlists/get/99999')
     
     assert response.status_code == HTTPStatus.NOT_FOUND
 
@@ -164,13 +175,12 @@ async def test_get_playlist_not_found(client):
 @pytest.mark.asyncio
 async def test_list_playlists_with_filter(client, playlist, token, session):
     """Deve filtrar playlists por autor_id."""
-    # Buscar playlists do autor da fixture
-    response = await client.get(f'/playlists?autor_id={playlist.autor_id}&page=1&per_page=10')
+    # Rota corrigida: /playlists/get_all
+    response = await client.get(f'/playlists/get_all?autor_id={playlist.autor_id}&page=1&per_page=10')
     
     assert response.status_code == HTTPStatus.OK
     data = response.json()
     assert data['total'] >= 1
-    # Verificar que todos os itens são do mesmo autor
     for item in data['items']:
         assert item['autor_id'] == playlist.autor_id
 
@@ -178,8 +188,9 @@ async def test_list_playlists_with_filter(client, playlist, token, session):
 @pytest.mark.asyncio
 async def test_update_playlist_without_fields(client, playlist, token):
     """Não deve atualizar playlist sem campos."""
+    # Rota corrigida: /playlists/update/{id}
     response = await client.put(
-        f'/playlists/{playlist.id}',
+        f'/playlists/update/{playlist.id}',
         headers={'Authorization': f'Bearer {token}'},
         json={},
     )
@@ -190,8 +201,9 @@ async def test_update_playlist_without_fields(client, playlist, token):
 @pytest.mark.asyncio
 async def test_update_playlist_only_description(client, playlist, token):
     """Deve atualizar apenas descrição da playlist."""
+    # Rota corrigida: /playlists/update/{id}
     response = await client.put(
-        f'/playlists/{playlist.id}',
+        f'/playlists/update/{playlist.id}',
         headers={'Authorization': f'Bearer {token}'},
         json={
             'descricao': 'Nova descrição',
@@ -201,14 +213,15 @@ async def test_update_playlist_only_description(client, playlist, token):
     assert response.status_code == HTTPStatus.OK
     data = response.json()
     assert data['descricao'] == 'Nova descrição'
-    assert data['titulo'] == playlist.titulo  # Título não mudou
+    assert data['titulo'] == playlist.titulo
 
 
 @pytest.mark.asyncio
 async def test_update_playlist_not_found(client, token):
     """Deve retornar 404 ao atualizar playlist inexistente."""
+    # Rota corrigida: /playlists/update/{id}
     response = await client.put(
-        '/playlists/99999',
+        '/playlists/update/99999',
         headers={'Authorization': f'Bearer {token}'},
         json={'titulo': 'Teste'},
     )
@@ -222,8 +235,9 @@ async def test_delete_playlist_not_author(client, playlist, other_user):
     from app.core.security import create_access_token
     other_token = create_access_token(other_user.id)
     
+    # Rota corrigida: /playlists/delete/{id}
     response = await client.delete(
-        f'/playlists/{playlist.id}',
+        f'/playlists/delete/{playlist.id}',
         headers={'Authorization': f'Bearer {other_token}'},
     )
     
@@ -233,8 +247,9 @@ async def test_delete_playlist_not_author(client, playlist, other_user):
 @pytest.mark.asyncio
 async def test_delete_playlist_not_found(client, token):
     """Deve retornar 404 ao deletar playlist inexistente."""
+    # Rota corrigida: /playlists/delete/{id}
     response = await client.delete(
-        '/playlists/99999',
+        '/playlists/delete/99999',
         headers={'Authorization': f'Bearer {token}'},
     )
     
@@ -244,8 +259,9 @@ async def test_delete_playlist_not_found(client, token):
 @pytest.mark.asyncio
 async def test_add_recurso_not_found(client, playlist, token):
     """Deve retornar 404 ao adicionar recurso inexistente."""
+    # Rota corrigida: /playlists/add_recurso/{id}
     response = await client.post(
-        f'/playlists/{playlist.id}/recursos',
+        f'/playlists/add_recurso/{playlist.id}',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_id': 99999},
     )
@@ -256,8 +272,9 @@ async def test_add_recurso_not_found(client, playlist, token):
 @pytest.mark.asyncio
 async def test_add_recurso_playlist_not_found(client, recurso, token):
     """Deve retornar 404 ao adicionar recurso em playlist inexistente."""
+    # Rota corrigida: /playlists/add_recurso/{id}
     response = await client.post(
-        '/playlists/99999/recursos',
+        '/playlists/add_recurso/99999',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_id': recurso.id},
     )
@@ -271,8 +288,9 @@ async def test_add_recurso_not_author(client, playlist, recurso, other_user):
     from app.core.security import create_access_token
     other_token = create_access_token(other_user.id)
     
+    # Rota corrigida: /playlists/add_recurso/{id}
     response = await client.post(
-        f'/playlists/{playlist.id}/recursos',
+        f'/playlists/add_recurso/{playlist.id}',
         headers={'Authorization': f'Bearer {other_token}'},
         json={'recurso_id': recurso.id},
     )
@@ -283,8 +301,9 @@ async def test_add_recurso_not_author(client, playlist, recurso, other_user):
 @pytest.mark.asyncio
 async def test_remove_recurso_not_in_playlist(client, playlist, recurso, token):
     """Deve retornar 404 ao remover recurso que não está na playlist."""
+    # Rota corrigida: /playlists/delete_recurso/{playlist_id}/{recurso_id}
     response = await client.delete(
-        f'/playlists/{playlist.id}/recursos/{recurso.id}',
+        f'/playlists/delete_recurso/{playlist.id}/{recurso.id}',
         headers={'Authorization': f'Bearer {token}'},
     )
     
@@ -296,17 +315,17 @@ async def test_remove_recurso_not_author(client, playlist, recurso, token, other
     """Não-autor não deve remover recurso."""
     # Adicionar recurso como autor
     await client.post(
-        f'/playlists/{playlist.id}/recursos',
+        f'/playlists/add_recurso/{playlist.id}',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_id': recurso.id},
     )
     
-    # Tentar remover como outro usuário
     from app.core.security import create_access_token
     other_token = create_access_token(other_user.id)
     
+    # Rota corrigida: /playlists/delete_recurso/{playlist_id}/{recurso_id}
     response = await client.delete(
-        f'/playlists/{playlist.id}/recursos/{recurso.id}',
+        f'/playlists/delete_recurso/{playlist.id}/{recurso.id}',
         headers={'Authorization': f'Bearer {other_token}'},
     )
     
@@ -337,7 +356,7 @@ async def test_reorder_recursos(client, playlist, session, token):
     
     await session.commit()
     
-    # Adicionar à playlist diretamente
+    # Adicionar à playlist
     for idx, r in enumerate(recursos):
         await session.refresh(r)
         pr = PlaylistRecurso(
@@ -349,10 +368,10 @@ async def test_reorder_recursos(client, playlist, session, token):
     
     await session.commit()
     
-    # Reordenar (inverter ordem)
+    # Rota corrigida: /playlists/update/{id}/reordenar
     nova_ordem = [r.id for r in reversed(recursos)]
     response = await client.put(
-        f'/playlists/{playlist.id}/reordenar',
+        f'/playlists/update/{playlist.id}/reordenar',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_ids_ordem': nova_ordem},
     )
@@ -363,8 +382,9 @@ async def test_reorder_recursos(client, playlist, session, token):
 @pytest.mark.asyncio
 async def test_reorder_recursos_empty_list(client, playlist, token):
     """Não deve reordenar com lista vazia."""
+    # Rota corrigida: /playlists/update/{id}/reordenar
     response = await client.put(
-        f'/playlists/{playlist.id}/reordenar',
+        f'/playlists/update/{playlist.id}/reordenar',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_ids_ordem': []},
     )
@@ -375,15 +395,15 @@ async def test_reorder_recursos_empty_list(client, playlist, token):
 @pytest.mark.asyncio
 async def test_reorder_recursos_duplicates(client, playlist, recurso, token):
     """Não deve reordenar com IDs duplicados."""
-    # Adicionar recurso
     await client.post(
-        f'/playlists/{playlist.id}/recursos',
+        f'/playlists/add_recurso/{playlist.id}',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_id': recurso.id},
     )
     
+    # Rota corrigida: /playlists/update/{id}/reordenar
     response = await client.put(
-        f'/playlists/{playlist.id}/reordenar',
+        f'/playlists/update/{playlist.id}/reordenar',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_ids_ordem': [recurso.id, recurso.id]},
     )
@@ -394,8 +414,9 @@ async def test_reorder_recursos_duplicates(client, playlist, recurso, token):
 @pytest.mark.asyncio
 async def test_reorder_recursos_not_in_playlist(client, playlist, recurso, token):
     """Não deve reordenar com recurso que não está na playlist."""
+    # Rota corrigida: /playlists/update/{id}/reordenar
     response = await client.put(
-        f'/playlists/{playlist.id}/reordenar',
+        f'/playlists/update/{playlist.id}/reordenar',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_ids_ordem': [recurso.id]},
     )
@@ -411,7 +432,6 @@ async def test_reorder_recursos_incomplete_list(client, playlist, session, token
     from app.enums.estrutura_recurso import EstruturaRecurso
     from app.models.recurso import Recurso
     
-    # Criar 2 recursos
     recursos = []
     for i in range(2):
         r = Recurso(
@@ -427,7 +447,6 @@ async def test_reorder_recursos_incomplete_list(client, playlist, session, token
     
     await session.commit()
     
-    # Adicionar à playlist diretamente
     for idx, r in enumerate(recursos):
         await session.refresh(r)
         pr = PlaylistRecurso(
@@ -439,9 +458,9 @@ async def test_reorder_recursos_incomplete_list(client, playlist, session, token
     
     await session.commit()
     
-    # Tentar reordenar com apenas 1 recurso
+    # Rota corrigida: /playlists/update/{id}/reordenar
     response = await client.put(
-        f'/playlists/{playlist.id}/reordenar',
+        f'/playlists/update/{playlist.id}/reordenar',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_ids_ordem': [recursos[0].id]},
     )
@@ -452,19 +471,18 @@ async def test_reorder_recursos_incomplete_list(client, playlist, session, token
 @pytest.mark.asyncio
 async def test_reorder_recursos_not_author(client, playlist, recurso, token, other_user):
     """Não-autor não deve reordenar recursos."""
-    # Adicionar recurso como autor
     await client.post(
-        f'/playlists/{playlist.id}/recursos',
+        f'/playlists/add_recurso/{playlist.id}',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_id': recurso.id},
     )
     
-    # Tentar reordenar como outro usuário
     from app.core.security import create_access_token
     other_token = create_access_token(other_user.id)
     
+    # Rota corrigida: /playlists/update/{id}/reordenar
     response = await client.put(
-        f'/playlists/{playlist.id}/reordenar',
+        f'/playlists/update/{playlist.id}/reordenar',
         headers={'Authorization': f'Bearer {other_token}'},
         json={'recurso_ids_ordem': [recurso.id]},
     )
@@ -475,8 +493,9 @@ async def test_reorder_recursos_not_author(client, playlist, recurso, token, oth
 @pytest.mark.asyncio
 async def test_reorder_recursos_not_found(client, token):
     """Deve retornar 404 ao reordenar playlist inexistente."""
+    # Rota corrigida: /playlists/update/{id}/reordenar
     response = await client.put(
-        '/playlists/99999/reordenar',
+        '/playlists/update/99999/reordenar',
         headers={'Authorization': f'Bearer {token}'},
         json={'recurso_ids_ordem': [1]},
     )

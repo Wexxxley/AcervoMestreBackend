@@ -19,12 +19,15 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["app"]
+source = ["app", "*/app"]
+branch = true           
+concurrency = ["thread"] 
 omit = [
     "*/tests/*",
     "*/migrations/*",
     "*/__pycache__/*",
     "*/venv/*",
+    "*/config/*"
 ]
 
 [tool.coverage.report]

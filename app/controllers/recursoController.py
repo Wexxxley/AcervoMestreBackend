@@ -2,12 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile
 from sqlalchemy import func, or_, update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from typing import Optional
-from app.dtos.recursoDtos import RecursoCreate, RecursoRead, RecursoUpdate, RecursoDownloadResponse
+from typing import Optional, List
+from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
+
+from app.dtos.recursoDtos import RecursoRead, RecursoUpdate
+from app.dtos.tagDtos import TagRead
 from app.models.recurso import Recurso
+from app.models.recurso_tag import RecursoTag
+from app.models.tag import Tag
 from app.models.user import User
 from app.core.database import get_session
-from app.core.security import get_current_user, get_current_user_optional
+from app.core.security import RoleChecker, get_current_user, get_current_user_optional
 from app.enums.visibilidade import Visibilidade
 from app.enums.estrutura_recurso import EstruturaRecurso
 from app.enums.perfil import Perfil
@@ -17,6 +23,60 @@ from app.services.supabase_storage_service import supabase_storage_service
 
 recurso_router = APIRouter(prefix="/recursos", tags=["Recursos"])
 
+allow_staff = RoleChecker(["Professor", "Coordenador", "Gestor"])
+allow_management = RoleChecker(["Coordenador", "Gestor"])
+allow_gestor = RoleChecker(["Gestor"])
+
+# Função Auxiliar
+def preencher_link_acesso(recurso: Recurso) -> RecursoRead:
+    """
+    Converte o model de banco (Recurso) para o DTO (RecursoRead)
+    e preenche o campo 'link_acesso' dinamicamente.
+    """
+    
+    # Conversão manual de tags para evitar erro de validação do Pydantic
+    tags_convertidas = []
+    for tag in recurso.tags:
+        try:
+            tags_convertidas.append(TagRead.model_validate(tag, from_attributes=True))
+        except:
+            tags_convertidas.append(TagRead(**tag.model_dump()))
+
+    # Cria o DTO. Note que removemos 'url_externa' do construtor.
+    dto = RecursoRead(
+        id=recurso.id,
+        titulo=recurso.titulo,
+        descricao=recurso.descricao,
+        visibilidade=recurso.visibilidade,
+        estrutura=recurso.estrutura,
+        autor_id=recurso.autor_id,
+        is_destaque=recurso.is_destaque,
+        visualizacoes=recurso.visualizacoes,
+        downloads=recurso.downloads,
+        curtidas=recurso.curtidas,
+        criado_em=recurso.criado_em,
+        tags=tags_convertidas,
+        
+        # Campos opcionais restantes
+        conteudo_markdown=recurso.conteudo_markdown,
+        storage_key=recurso.storage_key,
+        mime_type=recurso.mime_type,
+        tamanho_bytes=recurso.tamanho_bytes,
+        
+        # link_acesso começa nulo e é preenchido abaixo
+        link_acesso=None 
+    )
+    
+    # Lógica de preenchimento do Link
+    if recurso.estrutura == EstruturaRecurso.UPLOAD and recurso.storage_key:
+        dto.link_acesso = s3_service.get_file_url(recurso.storage_key, download=False)
+    
+    elif recurso.estrutura == EstruturaRecurso.URL:
+        # Pegamos do banco e jogamos no link_acesso
+        dto.link_acesso = recurso.url_externa
+        
+    return dto
+
 @recurso_router.get("/get/{recurso_id}", response_model=RecursoRead)
 async def get_recurso_by_id(
     recurso_id: int, 
@@ -24,6 +84,8 @@ async def get_recurso_by_id(
     current_user: User | None = Depends(get_current_user_optional)
 ):
     """Retorna um recurso por ID e incrementa o contador de visualizações.
+    
+    O objeto retornado incluirá o campo `link_acesso` preenchido.
 
     Parâmetros:
     - `recurso_id` (int): ID do recurso a ser retornado.
@@ -31,14 +93,22 @@ async def get_recurso_by_id(
     - `current_user` (User|None): usuário autenticado (se houver).
 
     Retorna:
-    - `RecursoRead` com os dados do recurso solicitado.
+    - `RecursoRead` com os dados do recurso solicitado e suas tags.
 
     Erros possíveis:
     - 404: recurso não encontrado.
     - 403: acesso negado se recurso for PRIVADO e usuário for ALUNO ou não autenticado.
-    - 401: quando autenticação for necessária para operações protegidas (usada em outras rotas).
+    
+    Permissões:
+    - Acesso público para recursos PÚBLICOS.
+    - Autenticação necessária para recursos PRIVADOS (exceto Alunos).
     """
-    statement = select(Recurso).where(Recurso.id == recurso_id)
+    # 1. Primeira busca (carregando tags)
+    statement = (
+        select(Recurso)
+        .where(Recurso.id == recurso_id)
+        .options(selectinload(Recurso.tags))
+    )
     result = await session.exec(statement)
     recurso = result.first()
 
@@ -46,28 +116,31 @@ async def get_recurso_by_id(
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
     if recurso.visibilidade == Visibilidade.PRIVADO:
-        # Recursos privados só podem ser vistos por usuários que NÃO são ALUNO
         if not current_user or current_user.perfil == Perfil.Aluno:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Acesso negado a recurso privado",
             )
 
+    # 2. Incrementa visualização
     await session.exec(
         update(Recurso)
         .where(Recurso.id == recurso_id)
         .values(visualizacoes=Recurso.visualizacoes + 1)
     )
-
-    # Persistir a atualização e retornar o recurso atualizado
     await session.commit()
 
-    statement = select(Recurso).where(Recurso.id == recurso_id)
+    # 3. Segunda busca (Recarregar tags após commit)
+    statement = (
+        select(Recurso)
+        .where(Recurso.id == recurso_id)
+        .options(selectinload(Recurso.tags))
+    )
     result = await session.exec(statement)
-    recurso = result.first()
+    recurso_atualizado = result.first()
 
-    return recurso
-
+    # Retorna usando a função auxiliar que injeta o link
+    return preencher_link_acesso(recurso_atualizado)
 
 @recurso_router.get("/get_all", response_model=PaginatedResponse[RecursoRead])
 async def get_all_recursos(
@@ -78,6 +151,8 @@ async def get_all_recursos(
     current_user: User | None = Depends(get_current_user_optional),
 ):
     """Lista recursos com paginação e filtros.
+    
+    Todos os itens da lista terão o campo `link_acesso` preenchido.
 
     Parâmetros:
     - `session` (AsyncSession): sessão do banco.
@@ -93,16 +168,12 @@ async def get_all_recursos(
     - ALUNO e usuários não autenticados veem apenas recursos `PUBLICO`.
     - Outros perfis (Professor, Coordenador, Gestor) veem todos os recursos.
     """
-    # Montar a query base
-    statement = select(Recurso)
+    # Carregamento ansioso das tags para a lista
+    statement = select(Recurso).options(selectinload(Recurso.tags))
     
-    # Aplicar filtros de visibilidade
-    # Usuários ALUNO e não autenticados só veem recursos PUBLICOS
-    # Usuários autenticados não-ALUNO (Professor, Coordenador, Gestor) veem TODOS os recursos
+    # Filtros de Visibilidade
     if current_user is None or (current_user and current_user.perfil == Perfil.Aluno):
-        # Alunos e usuários não autenticados só veem PUBLICOS
         statement = statement.where(Recurso.visibilidade == Visibilidade.PUBLICO)
-    # Usuários autenticados não-ALUNO veem todos os recursos (sem filtro adicional)
     
     # Filtro por palavra-chave
     if palavra_chave:
@@ -117,14 +188,12 @@ async def get_all_recursos(
     if estrutura:
         statement = statement.where(Recurso.estrutura == estrutura)
 
-    # Contar o total de registros (com os mesmos filtros)
+    # Contagem total (Query separada para performance)
     count_statement = select(func.count()).select_from(Recurso)
     
-    # Aplicar os mesmos filtros de visibilidade na contagem
+    # Repete filtros para contagem correta
     if current_user is None or (current_user and current_user.perfil == Perfil.Aluno):
-        # Alunos e usuários não autenticados só contam PUBLICOS
         count_statement = count_statement.where(Recurso.visibilidade == Visibilidade.PUBLICO)
-    # Usuários autenticados não-ALUNO contam todos os recursos (sem filtro adicional)
     
     if palavra_chave:
         count_statement = count_statement.where(
@@ -140,32 +209,37 @@ async def get_all_recursos(
     total_result = await session.exec(count_statement)
     total_items = total_result.one()
 
-    # Aplicar a paginação
+    # Paginação e Ordenação
     offset = (pagination.page - 1) * pagination.per_page
     statement = statement.offset(offset).limit(pagination.per_page).order_by(Recurso.criado_em.desc())
     
     result = await session.exec(statement)
-    recursos = result.all()
+    recursos_db = result.all()
 
-    # Calcular total de páginas
+    # CONVERSÃO: Preenche o link de acesso para cada item da lista
+    items_dto = [preencher_link_acesso(r) for r in recursos_db]
+
     total_pages = (total_items + pagination.per_page - 1) // pagination.per_page
 
     return PaginatedResponse(
-        items=recursos,
+        items=items_dto,
         total=total_items,
         page=pagination.page,
         per_page=pagination.per_page,
         total_pages=total_pages
     )
 
-
-@recurso_router.post("/create", response_model=RecursoRead, status_code=status.HTTP_201_CREATED)
+@recurso_router.post("/create", response_model=RecursoRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(allow_staff)])
 async def create_recurso(
     titulo: str = Form(...),
     descricao: str = Form(...),
     estrutura: EstruturaRecurso = Form(...),
     visibilidade: Visibilidade = Form(Visibilidade.PUBLICO),
     is_destaque: bool = Form(False),
+    
+    # Aceita lista de strings para compatibilidade com Swagger e Postman
+    tag_ids: list[str] = Form([]),
+    
     # Campos específicos para cada tipo
     file: Optional[UploadFile] = File(None),
     url_externa: Optional[str] = Form(None),
@@ -175,6 +249,7 @@ async def create_recurso(
 ):
     """
     Cria um novo recurso com suporte a upload de arquivos.
+    O retorno inclui o link de acesso gerado.
 
     Parâmetros:
     - `titulo` (str): Título do recurso.
@@ -182,6 +257,7 @@ async def create_recurso(
     - `estrutura` (EstruturaRecurso): Tipo do recurso (UPLOAD, URL, NOTA).
     - `visibilidade` (Visibilidade): Visibilidade (PUBLICO, PRIVADO).
     - `is_destaque` (bool): Se o recurso é destaque.
+    - `tag_ids` (list[str]): Lista de IDs de tags (aceita "1,2" ou múltiplos campos).
     - `file` (UploadFile|None): Arquivo para upload (obrigatório para UPLOAD).
     - `url_externa` (str|None): URL externa (obrigatória para URL).
     - `conteudo_markdown` (str|None): Conteúdo markdown (obrigatório para NOTA).
@@ -193,11 +269,21 @@ async def create_recurso(
 
     Erros possíveis:
     - 401: Não autenticado.
-    - 400: Validação de campos (tipo de arquivo, campos obrigatórios).
+    - 400: Validação de campos (tipo de arquivo, campos obrigatórios, tags).
     - 413: Arquivo muito grande.
     - 500: Erro no upload.
     """
 
+    ids_tags_finais: List[int] = []
+    for item in tag_ids:
+        if "," in item:
+            partes = item.split(",")
+            for p in partes:
+                if p.strip().isdigit():
+                    ids_tags_finais.append(int(p.strip()))
+        elif item.strip().isdigit():
+            ids_tags_finais.append(int(item.strip()))
+    ids_tags_finais = list(set(ids_tags_finais)) # Remove duplicatas
 
     # Preparar dados base do recurso
     recurso_data = {
@@ -225,7 +311,6 @@ async def create_recurso(
             "mime_type": upload_result["mime_type"],
             "tamanho_bytes": upload_result["tamanho_bytes"],
         })
-    
     elif estrutura == EstruturaRecurso.URL:
         if not url_externa:
             raise HTTPException(
@@ -233,7 +318,6 @@ async def create_recurso(
                 detail="URL externa é obrigatória para recursos do tipo URL"
             )
         recurso_data["url_externa"] = url_externa
-    
     elif estrutura == EstruturaRecurso.NOTA:
         if not conteudo_markdown:
             raise HTTPException(
@@ -242,14 +326,36 @@ async def create_recurso(
             )
         recurso_data["conteudo_markdown"] = conteudo_markdown
 
-    # Criar recurso no banco
+    # 1. Salva o Recurso
     db_recurso = Recurso.model_validate(recurso_data)
     session.add(db_recurso)
-    await session.commit()
-    await session.refresh(db_recurso)
+    await session.flush() # Gera o ID do recurso
 
-    return db_recurso
+    # 2. Salva as Tags usando a lista processada
+    if ids_tags_finais:
+        for tag_id in ids_tags_finais:
+            recurso_tag = RecursoTag(
+                recurso_id=db_recurso.id,
+                tag_id=tag_id
+            )
+            session.add(recurso_tag)
 
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(status_code=400, detail="Erro ao associar tags. Verifique se os IDs existem.")
+    
+    # 3. Recarrega com tags para retorno (evita erro MissingGreenlet)
+    statement = (
+        select(Recurso)
+        .where(Recurso.id == db_recurso.id)
+        .options(selectinload(Recurso.tags))
+    )
+    result = await session.exec(statement)
+    recurso_com_tags = result.one()
+
+    return preencher_link_acesso(recurso_com_tags)
 
 @recurso_router.post("/upload/supabase", response_model=RecursoRead, status_code=status.HTTP_201_CREATED)
 async def cadastrar_recurso_upload_supabase(
@@ -331,10 +437,10 @@ async def update_recurso(
     - `current_user` (User): usuário autenticado (autor ou Coordenador exigido para permissão).
 
     Regras de autorização:
-    - Apenas o autor do recurso ou usuários com `Perfil.Coordenador` podem editar.
+    - Apenas o autor do recurso ou coordenadores ou gestores podem editar.
 
     Retorna:
-    - `RecursoRead` com os dados atualizados.
+    - `RecursoRead` com os dados atualizados e link de acesso.
 
     Erros possíveis:
     - 401: não autenticado.
@@ -350,13 +456,12 @@ async def update_recurso(
     if not db_recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
-    # Permissão: apenas autor ou Coordenador podem editar
-    if not (current_user.id == db_recurso.autor_id or current_user.perfil == Perfil.Coordenador):
+    # Permissão: apenas autor ou Coordenador ou gestor podem editar
+    if not (current_user.id == db_recurso.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
 
     recurso_data = recurso_in.model_dump(exclude_unset=True)
 
-    # Validate that updated fields are compatible with the resource's estrutura type
     estrutura_allowed_fields = {
         "UPLOAD": {"titulo", "descricao", "visibilidade", "is_destaque", "storage_key", "mime_type", "tamanho_bytes"},
         "URL": {"titulo", "descricao", "visibilidade", "is_destaque", "url_externa"},
@@ -376,11 +481,19 @@ async def update_recurso(
 
     session.add(db_recurso)
     await session.commit()
-    await session.refresh(db_recurso)
-    return db_recurso
+    
+    # Reload e Retorno
+    statement = (
+        select(Recurso)
+        .where(Recurso.id == recurso_id)
+        .options(selectinload(Recurso.tags))
+    )
+    result = await session.exec(statement)
+    recurso_atualizado = result.one()
+    
+    return preencher_link_acesso(recurso_atualizado)
 
-
-@recurso_router.delete("/delete/{recurso_id}", status_code=status.HTTP_204_NO_CONTENT)
+@recurso_router.delete("/delete/{recurso_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(allow_staff)])
 async def delete_recurso(
     recurso_id: int,
     session: AsyncSession = Depends(get_session),
@@ -394,7 +507,7 @@ async def delete_recurso(
     - `current_user` (User): usuário autenticado (autor ou Coordenador exigido para permissão).
 
     Regras de autorização:
-    - Apenas o autor do recurso ou usuários com `Perfil.Coordenador` podem excluir.
+    - Apenas o autor do recurso ou coordenadores ou gestores podem excluir.
 
     Retorno:
     - 204 No Content em sucesso.
@@ -412,8 +525,7 @@ async def delete_recurso(
     if not recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
-    # Permissão: apenas autor ou Coordenador podem deletar
-    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador):
+    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para excluir recurso")
 
     # Se for UPLOAD, remover arquivo do storage (MinIO ou Supabase)
@@ -435,38 +547,17 @@ async def delete_recurso(
     await session.delete(recurso)
     await session.commit()
 
-
-@recurso_router.post("/{recurso_id}/download", response_model=RecursoDownloadResponse)
-async def download_recurso(
+@recurso_router.post("/add_tag/{recurso_id}", status_code=status.HTTP_201_CREATED, dependencies=[Depends(allow_staff)])
+async def adicionar_tag_ao_recurso(
     recurso_id: int,
+    tag_id: int,
     session: AsyncSession = Depends(get_session),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     """
-    Incrementa o contador de downloads e retorna URL do arquivo (para UPLOAD).
-
-    Parâmetros:
-    - `recurso_id` (int): ID do recurso.
-    - `session` (AsyncSession): Sessão do banco.
-    - `current_user` (User|None): Usuário autenticado (se houver).
-
-    Comportamento:
-    - Para UPLOAD: Incrementa downloads e retorna URL do arquivo.
-    - Para URL: Retorna a URL externa.
-    - Para NOTA: Retorna erro (notas não têm "download").
-
-    Regras de visibilidade:
-    - Recursos PRIVADOS só podem ser acessados por não-ALUNO autenticado.
-
-    Retorna:
-    - `RecursoDownloadResponse` com URL e contador de downloads.
-
-    Erros possíveis:
-    - 404: Recurso não encontrado.
-    - 403: Acesso negado (recurso privado).
-    - 400: Operação não suportada para o tipo de recurso.
+    Associa uma tag existente a um recurso existente.
     """
-    # Buscar recurso
+    # 1. Verificar se o recurso existe
     statement = select(Recurso).where(Recurso.id == recurso_id)
     result = await session.exec(statement)
     recurso = result.first()
@@ -474,13 +565,56 @@ async def download_recurso(
     if not recurso:
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
-    # Verificar visibilidade
-    if recurso.visibilidade == Visibilidade.PRIVADO:
-        if not current_user or current_user.perfil == Perfil.Aluno:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Acesso negado a recurso privado",
-            )
+    # 2. Verificar Permissão (Autor ou Coordenador ou gestor)
+    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
+        raise HTTPException(status_code=403, detail="Permissão negada. Apenas autor ou coordenador ou gestor podem editar.")
+
+    # 3. Verificar se a Tag existe
+    tag_statement = select(Tag).where(Tag.id == tag_id)
+    tag_result = await session.exec(tag_statement)
+    tag = tag_result.first()
+    
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag não encontrada")
+
+    # 4. Verificar se a associação já existe 
+    assoc_statement = select(RecursoTag).where(
+        RecursoTag.recurso_id == recurso_id,
+        RecursoTag.tag_id == tag_id
+    )
+    assoc_result = await session.exec(assoc_statement)
+    if assoc_result.first():
+        raise HTTPException(status_code=400, detail="Esta tag já está associada ao recurso")
+
+    # 5. Criar a associação
+    novo_link = RecursoTag(recurso_id=recurso_id, tag_id=tag_id)
+    session.add(novo_link)
+    await session.commit()
+
+    return {"message": "Tag associada com sucesso"}
+
+@recurso_router.delete("/remove_tag/{recurso_id}/{tag_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(allow_staff)])
+async def remover_tag_do_recurso(
+    recurso_id: int,
+    tag_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Remove (desassocia) uma tag de um recurso.
+    Não apaga a tag do sistema, apenas remove a ligação.
+    """
+    # 1. Verificar se o recurso existe
+    statement = select(Recurso).where(Recurso.id == recurso_id)
+    result = await session.exec(statement)
+    recurso = result.first()
+
+    if not recurso:
+        raise HTTPException(status_code=404, detail="Recurso não encontrado")
+
+    # 2. Verificar Permissão
+    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
+        raise HTTPException(status_code=403, detail="Permissão negada")
 
     # Processar de acordo com o tipo
     if recurso.estrutura == EstruturaRecurso.UPLOAD:

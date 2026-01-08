@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
@@ -14,20 +14,20 @@ from app.dtos.playlistDtos import (
     PlaylistAddRecursoRequest,
     PlaylistReordenacaoRequest,
 )
+from app.enums.perfil import Perfil
 from app.models.playlist import Playlist
 from app.models.playlist_recurso import PlaylistRecurso
 from app.models.recurso import Recurso
 from app.models.user import User
 from app.core.database import get_session
-from app.core.security import get_current_user
+from app.core.security import RoleChecker, get_current_user
 from app.utils.pagination import PaginationParams, PaginatedResponse
 
 playlist_router = APIRouter(prefix="/playlists", tags=["Playlists"])
 
-
-# ============================================================================
-# Validações e funções auxiliares
-# ============================================================================
+allow_staff = RoleChecker(["Professor", "Coordenador", "Gestor"])
+allow_management = RoleChecker(["Coordenador", "Gestor"])
+allow_gestor = RoleChecker(["Gestor"])
 
 async def verificar_playlist_existe(
     playlist_id: int,
@@ -43,19 +43,6 @@ async def verificar_playlist_existe(
     
     return playlist
 
-
-async def verificar_autoria(
-    playlist: Playlist,
-    current_user: User | None
-) -> None:
-    """Verifica se o usuário é o autor da playlist, lança 403 caso contrário."""
-    if not current_user or current_user.id != playlist.autor_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Permissão negada. Apenas o autor pode realizar esta ação."
-        )
-
-
 async def verificar_recurso_existe(
     recurso_id: int,
     session: AsyncSession
@@ -70,59 +57,30 @@ async def verificar_recurso_existe(
     
     return recurso
 
-
-# ============================================================================
-# Endpoints: CRUD Padrão
-# ============================================================================
-
-@playlist_router.post("/", response_model=PlaylistRead, status_code=201)
-async def criar_playlist(
-    data: PlaylistCreate,
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    [RF12] Criar Playlist
-    
-    Cria uma nova playlist vazia associada ao usuário autenticado.
-    Requer autenticação.
-    """
-    # Validação de título é feita pelo DTO (`PlaylistCreate`) via Pydantic
-    
-    nova_playlist = Playlist(
-        titulo=data.titulo.strip(),
-        descricao=data.descricao.strip() if data.descricao and data.descricao.strip() else None,
-        autor_id=current_user.id,
-    )
-    
-    session.add(nova_playlist)
-    await session.commit()
-    
-    # Eagerly load recursos relationship before returning
-    result = await session.exec(
-        select(Playlist)
-        .options(selectinload(Playlist.recursos))
-        .where(Playlist.id == nova_playlist.id)
-    )
-    playlist_with_recursos = result.one()
-    return playlist_with_recursos
-
-
-@playlist_router.get("/{playlist_id}", response_model=PlaylistRead)
+@playlist_router.get("/get/{playlist_id}", response_model=PlaylistRead)
 async def obter_playlist_por_id(
     playlist_id: int,
     session: AsyncSession = Depends(get_session),
 ):
+    """Busca uma playlist pelo ID.
+
+    Parâmetros:
+    - `playlist_id` (int): ID da playlist a ser buscada.
+
+    Retorna:
+    - `PlaylistRead` com os dados da playlist e a lista de recursos.
+
+    Erros possíveis:
+    - 404: caso a playlist não seja encontrada.
     """
-    Obter detalhes de uma playlist por ID.
-    Retorna a playlist com a lista de recursos ordenados.
-    """
-    # Eager load playlist com recursos e seus objetos Recurso aninhados
+   
     statement = (
         select(Playlist)
         .where(Playlist.id == playlist_id)
         .options(
-            selectinload(Playlist.recursos).selectinload(PlaylistRecurso.recurso)
+            selectinload(Playlist.recursos)
+            .selectinload(PlaylistRecurso.recurso)
+            .selectinload(Recurso.tags) 
         )
     )
     result = await session.exec(statement)
@@ -133,16 +91,23 @@ async def obter_playlist_por_id(
     
     return playlist
 
-
-@playlist_router.get("", response_model=PaginatedResponse[PlaylistListRead])
+@playlist_router.get("/get_all", response_model=PaginatedResponse[PlaylistListRead])
 async def listar_playlists(
     session: AsyncSession = Depends(get_session),
     pagination: PaginationParams = Depends(),
     autor_id: Optional[int] = Query(None, description="Filtrar por autor_id"),
 ):
-    """
-    Listar playlists (com opção de filtro por autor).
-    Retorna lista simplificada sem detalhe dos recursos.
+    """Lista as playlists cadastradas com paginação.
+
+    Parâmetros:
+    - `pagination`: Parâmetros de paginação (page, per_page).
+    - `autor_id` (Optional[int]): Filtra as playlists por ID do autor.
+
+    Retorna:
+    - `PaginatedResponse` contendo a lista de `PlaylistListRead` e metadados.
+
+    Permissões:
+    - Acesso público.
     """
     # Usar eager loading para evitar N+1 ao carregar os recursos das playlists
     statement = select(Playlist).options(selectinload(Playlist.recursos))
@@ -188,81 +153,72 @@ async def listar_playlists(
         total=total_items,
     )
 
-
-@playlist_router.put("/{playlist_id}", response_model=PlaylistRead)
-async def editar_playlist(
-    playlist_id: int,
-    data: PlaylistUpdate,
+@playlist_router.post("/create", response_model=PlaylistRead, status_code=201, dependencies=[Depends(allow_staff)])
+async def criar_playlist(
+    data: PlaylistCreate,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    """Cria uma nova playlist.
+
+    Parâmetros:
+    - `data` (PlaylistCreate): Dados da playlist (título, descrição).
+
+    Retorna:
+    - `PlaylistRead` com os dados da playlist criada.
+
+    Permissões:
+    - Requer usuário autenticado.
     """
-    Editar uma playlist (título e descrição).
-    Apenas o autor pode editar.
-    """
-    playlist = await verificar_playlist_existe(playlist_id, session)
-    await verificar_autoria(playlist, current_user)
-    # Validar que ao menos um campo foi enviado para atualização
-    if data.titulo is None and data.descricao is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Pelo menos um campo (titulo ou descricao) deve ser informado para atualização"
-        )
+    # Validação de título é feita pelo DTO (`PlaylistCreate`) via Pydantic
     
-    if data.titulo is not None:
-        playlist.titulo = data.titulo.strip()
+    nova_playlist = Playlist(
+        titulo=data.titulo.strip(),
+        descricao=data.descricao.strip() if data.descricao and data.descricao.strip() else None,
+        autor_id=current_user.id,
+    )
     
-    if data.descricao is not None:
-        playlist.descricao = data.descricao.strip() if data.descricao.strip() else None
-    
-    session.add(playlist)
+    session.add(nova_playlist)
     await session.commit()
     
     # Eagerly load recursos relationship before returning
     result = await session.exec(
         select(Playlist)
         .options(selectinload(Playlist.recursos))
-        .where(Playlist.id == playlist.id)
+        .where(Playlist.id == nova_playlist.id)
     )
     playlist_with_recursos = result.one()
     return playlist_with_recursos
 
-
-@playlist_router.delete("/{playlist_id}", status_code=204)
-async def deletar_playlist(
-    playlist_id: int,
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Deletar uma playlist.
-    Apenas o autor pode deletar.
-    Nota: A tabela associativa será deletada em cascata, mas os recursos serão mantidos.
-    """
-    playlist = await verificar_playlist_existe(playlist_id, session)
-    await verificar_autoria(playlist, current_user)
-    
-    await session.delete(playlist)
-    await session.commit()
-
-
-# ============================================================================
-# Endpoints: Gerenciar Recursos na Playlist [RF13]
-# ============================================================================
-
-@playlist_router.post("/{playlist_id}/recursos", status_code=201)
+@playlist_router.post("/add_recurso/{playlist_id}", status_code=201, dependencies=[Depends(allow_staff)])
 async def adicionar_recurso_playlist(
     playlist_id: int,
     data: PlaylistAddRecursoRequest,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Adicionar um recurso existente à playlist.
-    Apenas o autor da playlist pode adicionar.
+    """Adiciona um recurso existente à playlist.
+
+    Parâmetros:
+    - `playlist_id` (int): ID da playlist alvo.
+    - `data` (PlaylistAddRecursoRequest): ID do recurso a ser adicionado.
+
+    Retorna:
+    - JSON com mensagem de sucesso e a ordem atribuída.
+
+    Erros possíveis:
+    - 403: caso o usuário não seja o autor da playlist.
+    - 404: caso a playlist ou o recurso não existam.
+    - 409: caso o recurso já esteja presente na playlist.
+
+    Permissões:
+    - Apenas o autor da playlist.
     """
     playlist = await verificar_playlist_existe(playlist_id, session)
-    await verificar_autoria(playlist, current_user)
+    
+    # Permissão: apenas autor ou Coordenador ou gestor podem editar
+    if not (current_user.id == playlist.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
     
     # Verificar se recurso existe
     recurso = await verificar_recurso_existe(data.recurso_id, session)
@@ -279,12 +235,25 @@ async def adicionar_recurso_playlist(
             detail="Recurso já está presente nesta playlist"
         )
     
-    # Obter a próxima ordem (última ordem + 1)
+    # Obter a próxima ordem
     statement_ordem = select(func.max(PlaylistRecurso.ordem)).where(
         PlaylistRecurso.playlist_id == playlist_id
     )
     resultado_ordem = await session.exec(statement_ordem)
-    proxima_ordem = (resultado_ordem.one() or -1) + 1
+    max_ordem = resultado_ordem.first()
+    
+    # CORREÇÃO AQUI: Verifica explicitamente se é None
+    if max_ordem is None:
+        proxima_ordem = 0
+    else:
+        proxima_ordem = max_ordem + 1
+
+    # Criar associação
+    playlist_recurso = PlaylistRecurso(
+        playlist_id=playlist_id,
+        recurso_id=data.recurso_id,
+        ordem=proxima_ordem,
+    )
 
     # Criar associação
     playlist_recurso = PlaylistRecurso(
@@ -313,68 +282,94 @@ async def adicionar_recurso_playlist(
     
     return {"message": "Recurso adicionado à playlist com sucesso", "ordem": proxima_ordem}
 
-
-@playlist_router.delete("/{playlist_id}/recursos/{recurso_id}", status_code=204)
-async def remover_recurso_playlist(
+@playlist_router.put("/update/{playlist_id}", response_model=PlaylistRead, dependencies=[Depends(allow_staff)])
+async def editar_playlist(
     playlist_id: int,
-    recurso_id: int,
+    data: PlaylistUpdate,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Remover um recurso da playlist.
-    Apenas o autor da playlist pode remover.
-    Nota: O recurso não é deletado, apenas desassociado.
+    """Atualiza os dados de uma playlist (título e descrição).
+
+    Parâmetros:
+    - `playlist_id` (int): ID da playlist a ser atualizada.
+    - `data` (PlaylistUpdate): Novos dados (título, descrição).
+
+    Retorna:
+    - `PlaylistRead` com os dados atualizados.
+
+    Erros possíveis:
+    - 400: caso nenhum campo seja enviado para atualização.
+    - 403: caso o usuário não seja o autor da playlist.
+    - 404: caso a playlist não seja encontrada.
+
+    Permissões:
+    - Apenas o autor da playlist, coordenador ou gestor.
     """
     playlist = await verificar_playlist_existe(playlist_id, session)
-    await verificar_autoria(playlist, current_user)
     
-    # Verificar se o recurso está na playlist
-    statement = select(PlaylistRecurso).where(
-        (PlaylistRecurso.playlist_id == playlist_id) &
-        (PlaylistRecurso.recurso_id == recurso_id)
-    )
-    result = await session.exec(statement)
-    playlist_recurso = result.first()
+    # Permissão: apenas autor ou Coordenador ou gestor podem editar
+    if not (current_user.id == playlist.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
     
-    if not playlist_recurso:
+    # Validar que ao menos um campo foi enviado para atualização
+    if data.titulo is None and data.descricao is None:
         raise HTTPException(
-            status_code=404,
-            detail="Recurso não encontrado nesta playlist"
+            status_code=400,
+            detail="Pelo menos um campo (titulo ou descricao) deve ser informado para atualização"
         )
     
-    # Deletar associação
-    await session.delete(playlist_recurso)
+    if data.titulo is not None:
+        playlist.titulo = data.titulo.strip()
     
-    # Reordenar os recursos restantes para não haver lacunas
-    statement_reordenar = select(PlaylistRecurso).where(
-        PlaylistRecurso.playlist_id == playlist_id
-    ).order_by(PlaylistRecurso.ordem)
+    if data.descricao is not None:
+        playlist.descricao = data.descricao.strip() if data.descricao.strip() else None
     
-    resultado_reordenar = await session.exec(statement_reordenar)
-    recursos_restantes = resultado_reordenar.all()
-    
-    for idx, pr in enumerate(recursos_restantes):
-        pr.ordem = idx
-        session.add(pr)
-    
+    session.add(playlist)
     await session.commit()
+    
+    result = await session.exec(
+        select(Playlist)
+        .options(
+            selectinload(Playlist.recursos)
+            .selectinload(PlaylistRecurso.recurso)
+            .selectinload(Recurso.tags)
+        )
+        .where(Playlist.id == playlist.id)
+    )
+    playlist_with_recursos = result.one()
+    
+    return playlist_with_recursos
 
-
-@playlist_router.put("/{playlist_id}/reordenar", status_code=200)
+@playlist_router.put("/update/{playlist_id}/reordenar", status_code=200, dependencies=[Depends(allow_staff)])
 async def reordenar_recursos_playlist(
     playlist_id: int,
     data: PlaylistReordenacaoRequest,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Reordenar recursos na playlist.
-    Recebe uma lista de IDs de recursos na nova ordem.
-    Apenas o autor da playlist pode reordenar.
+    """Reordena os recursos dentro de uma playlist.
+
+    Parâmetros:
+    - `playlist_id` (int): ID da playlist.
+    - `data` (PlaylistReordenacaoRequest): Lista com IDs dos recursos na nova ordem desejada.
+
+    Retorna:
+    - JSON com mensagem de sucesso.
+
+    Erros possíveis:
+    - 400: Lista vazia, IDs duplicados ou ID inválido.
+    - 403: caso o usuário não seja o autor da playlist.
+    - 404: caso a playlist não seja encontrada.
+
+    Permissões:
+    - Apenas o autor da playlist.
     """
     playlist = await verificar_playlist_existe(playlist_id, session)
-    await verificar_autoria(playlist, current_user)
+    
+    # Permissão: apenas autor ou Coordenador ou gestor podem editar
+    if not (current_user.id == playlist.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
     
     if not data.recurso_ids_ordem:
         raise HTTPException(status_code=400, detail="Lista de recursos vazia")
@@ -426,3 +421,103 @@ async def reordenar_recursos_playlist(
     await session.commit()
     
     return {"message": "Recursos reordenados com sucesso"}
+
+@playlist_router.delete("/delete/{playlist_id}", status_code=204, dependencies=[Depends(allow_staff)])
+async def deletar_playlist(
+    playlist_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove uma playlist permanentemente.
+
+    Parâmetros:
+    - `playlist_id` (int): ID da playlist a ser removida.
+
+    Retorna:
+    - 204 No Content.
+
+    Erros possíveis:
+    - 403: caso o usuário não seja o autor da playlist.
+    - 404: caso a playlist não seja encontrada.
+
+    Permissões:
+    - Apenas o autor da playlist.
+    """
+    playlist = await verificar_playlist_existe(playlist_id, session)
+    
+    # Permissão: apenas autor ou Coordenador ou gestor podem editar
+    if not (current_user.id == playlist.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
+    
+    statement_vinculos = select(PlaylistRecurso).where(
+        PlaylistRecurso.playlist_id == playlist_id
+    )
+    result = await session.exec(statement_vinculos)
+    vinculos = result.all()
+    
+    for vinculo in vinculos:
+        await session.delete(vinculo)
+    
+    await session.flush() 
+
+    await session.delete(playlist)
+    await session.commit()
+
+@playlist_router.delete("/delete_recurso/{playlist_id}/{recurso_id}", status_code=204, dependencies=[Depends(allow_staff)])
+async def remover_recurso_playlist(
+    playlist_id: int,
+    recurso_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove um recurso de uma playlist.
+
+    Parâmetros:
+    - `playlist_id` (int): ID da playlist.
+    - `recurso_id` (int): ID do recurso a ser desassociado.
+
+    Retorna:
+    - 204 No Content.
+
+    Erros possíveis:
+    - 403: caso o usuário não seja o autor da playlist.
+    - 404: caso a playlist, o recurso ou a associação não sejam encontrados.
+
+    Permissões:
+    - Apenas o autor da playlist.
+    """
+    playlist = await verificar_playlist_existe(playlist_id, session)
+    # Permissão: apenas autor ou Coordenador ou gestor podem editar
+    if not (current_user.id == playlist.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
+    
+    # Verificar se o recurso está na playlist
+    statement = select(PlaylistRecurso).where(
+        (PlaylistRecurso.playlist_id == playlist_id) &
+        (PlaylistRecurso.recurso_id == recurso_id)
+    )
+    result = await session.exec(statement)
+    playlist_recurso = result.first()
+    
+    if not playlist_recurso:
+        raise HTTPException(
+            status_code=404,
+            detail="Recurso não encontrado nesta playlist"
+        )
+    
+    await session.delete(playlist_recurso)
+    
+    await session.flush() 
+    
+    statement_reordenar = select(PlaylistRecurso).where(
+        PlaylistRecurso.playlist_id == playlist_id
+    ).order_by(PlaylistRecurso.ordem)
+    
+    resultado_reordenar = await session.exec(statement_reordenar)
+    recursos_restantes = resultado_reordenar.all()
+    
+    for idx, pr in enumerate(recursos_restantes):
+        pr.ordem = idx
+        session.add(pr)
+    
+    await session.commit()

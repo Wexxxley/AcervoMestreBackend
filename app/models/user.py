@@ -1,4 +1,3 @@
-from typing import Optional
 from datetime import date, datetime, timezone
 from sqlmodel import SQLModel, Field
 from app.enums.perfil import Perfil 
