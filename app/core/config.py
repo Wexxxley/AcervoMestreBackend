@@ -19,8 +19,13 @@ class Settings(BaseSettings):
     S3_ENDPOINT_URL: str
     S3_REGION: str = "us-east-1"
     
-    # --- Limites de upload ---
-    MAX_FILE_SIZE_MB: int = 100
+    # Supabase Storage
+    SUPABASE_URL: str = ""
+    SUPABASE_KEY: str = ""
+    SUPABASE_BUCKET_NAME: str = "recursos"
+    
+    # Limites de upload
+    MAX_FILE_SIZE_MB: int = 100  # Tamanho máximo de arquivo em MB
     ALLOWED_MIME_TYPES: list[str] = [
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

@@ -19,6 +19,7 @@ from app.enums.estrutura_recurso import EstruturaRecurso
 from app.enums.perfil import Perfil
 from app.utils.pagination import PaginationParams, PaginatedResponse
 from app.services.s3_service import s3_service
+from app.services.supabase_storage_service import supabase_storage_service
 
 recurso_router = APIRouter(prefix="/recursos", tags=["Recursos"])
 
@@ -356,7 +357,71 @@ async def create_recurso(
 
     return preencher_link_acesso(recurso_com_tags)
 
-@recurso_router.patch("/patch/{recurso_id}", response_model=RecursoRead, dependencies=[Depends(allow_staff)])
+@recurso_router.post("/upload/supabase", response_model=RecursoRead, status_code=status.HTTP_201_CREATED)
+async def cadastrar_recurso_upload_supabase(
+    titulo: str = Form(...),
+    descricao: str = Form(...),
+    visibilidade: Visibilidade = Form(Visibilidade.PUBLICO),
+    is_destaque: bool = Form(False),
+    arquivo: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    [RF04] - Cadastrar Recurso (Upload) usando Supabase Storage.
+    
+    Este endpoint implementa o upload de arquivos para o Supabase Storage,
+    armazenando os metadados no banco de dados Neon.tech.
+
+    Parâmetros:
+    - `titulo` (str): Título do recurso.
+    - `descricao` (str): Descrição do recurso.
+    - `visibilidade` (Visibilidade): Nível de privacidade (PUBLICO, PRIVADO).
+    - `is_destaque` (bool): Se o recurso é destaque.
+    - `arquivo` (UploadFile): Arquivo para upload.
+    - `session` (AsyncSession): Sessão do banco.
+    - `current_user` (User): Usuário autenticado (autor do recurso).
+
+    Fluxo de execução:
+    1. Valida o arquivo (tipo e tamanho).
+    2. Faz upload para o Supabase Storage.
+    3. Cria o registro Recurso no Neon.tech com os metadados.
+    4. Retorna o recurso criado com a URL pública do arquivo.
+
+    Retorna:
+    - `RecursoRead` com os dados do recurso criado (HTTP 201).
+
+    Erros possíveis:
+    - 401: Não autenticado.
+    - 400: Tipo de arquivo não permitido.
+    - 413: Arquivo muito grande.
+    - 500: Erro no upload para Supabase.
+    """
+    # 1. Fazer upload para o Supabase Storage
+    upload_result = await supabase_storage_service.upload_file(arquivo)
+    
+    # 2. Criar o registro do Recurso no banco de dados
+    recurso_data = {
+        "titulo": titulo,
+        "descricao": descricao,
+        "visibilidade": visibilidade,
+        "estrutura": EstruturaRecurso.UPLOAD,
+        "is_destaque": is_destaque,
+        "autor_id": current_user.id,
+        "storage_key": upload_result["public_url"],  # Armazenar a URL pública
+        "mime_type": upload_result["mime_type"],
+        "tamanho_bytes": upload_result["tamanho_bytes"],
+    }
+    
+    db_recurso = Recurso.model_validate(recurso_data)
+    session.add(db_recurso)
+    await session.commit()
+    await session.refresh(db_recurso)
+    
+    return db_recurso
+
+
+@recurso_router.patch("/patch/{recurso_id}", response_model=RecursoRead)
 async def update_recurso(
     recurso_id: int, 
     recurso_in: RecursoUpdate, 
@@ -463,13 +528,21 @@ async def delete_recurso(
     if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para excluir recurso")
 
-    # Se for UPLOAD, remover arquivo do MinIO
+    # Se for UPLOAD, remover arquivo do storage (MinIO ou Supabase)
     if recurso.estrutura == EstruturaRecurso.UPLOAD and recurso.storage_key:
         try:
-            await s3_service.delete_file(recurso.storage_key)
+            # Detectar se é Supabase (URL completa) ou MinIO (apenas chave)
+            if recurso.storage_key.startswith("http"):
+                # É uma URL do Supabase - extrair a chave do path
+                # URL: https://.../storage/v1/object/public/recursos/abc123.pdf
+                storage_key_part = recurso.storage_key.split("/")[-1]
+                await supabase_storage_service.delete_file(storage_key_part)
+            else:
+                # É uma chave do MinIO
+                await s3_service.delete_file(recurso.storage_key)
         except Exception as e:
             # Log do erro, mas não falhar a exclusão do banco
-            print(f"Erro ao deletar arquivo do S3: {e}")
+            print(f"Erro ao deletar arquivo do storage: {e}")
 
     await session.delete(recurso)
     await session.commit()
@@ -543,17 +616,51 @@ async def remover_tag_do_recurso(
     if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
         raise HTTPException(status_code=403, detail="Permissão negada")
 
-    # 3. Buscar a associação específica
-    assoc_statement = select(RecursoTag).where(
-        RecursoTag.recurso_id == recurso_id,
-        RecursoTag.tag_id == tag_id
-    )
-    result = await session.exec(assoc_statement)
-    link = result.first()
-
-    if not link:
-        raise HTTPException(status_code=404, detail="Tag não está associada a este recurso")
-
-    # 4. Deletar a associação
-    await session.delete(link)
-    await session.commit()
+    # Processar de acordo com o tipo
+    if recurso.estrutura == EstruturaRecurso.UPLOAD:
+        if not recurso.storage_key:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Recurso de upload sem storage_key"
+            )
+        
+        # Incrementar downloads
+        await session.exec(
+            update(Recurso)
+            .where(Recurso.id == recurso_id)
+            .values(downloads=Recurso.downloads + 1)
+        )
+        await session.commit()
+        
+        # Buscar recurso atualizado
+        result = await session.exec(statement)
+        recurso = result.first()
+        
+        # Gerar URL do arquivo
+        # Se storage_key já é uma URL completa (Supabase), usar diretamente
+        # Se é uma chave simples (MinIO), gerar a URL
+        if recurso.storage_key.startswith("http"):
+            download_url = recurso.storage_key  # Supabase - já é URL pública
+        else:
+            download_url = s3_service.get_file_url(recurso.storage_key)  # MinIO
+        
+        return RecursoDownloadResponse(
+            message="URL de download gerada com sucesso",
+            download_url=download_url,
+            downloads=recurso.downloads
+        )
+    
+    elif recurso.estrutura == EstruturaRecurso.URL:
+        # Para URLs externas, apenas retornar a URL
+        return RecursoDownloadResponse(
+            message="URL externa do recurso",
+            download_url=recurso.url_externa,
+            downloads=recurso.downloads
+        )
+    
+    elif recurso.estrutura == EstruturaRecurso.NOTA:
+        # Notas não têm download
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Operação de download não suportada para recursos do tipo NOTA"
+        )
