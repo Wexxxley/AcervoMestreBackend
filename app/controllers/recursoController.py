@@ -39,7 +39,7 @@ def preencher_link_acesso(recurso: Recurso) -> RecursoRead:
     for tag in recurso.tags:
         try:
             tags_convertidas.append(TagRead.model_validate(tag, from_attributes=True))
-        except:
+        except Exception:
             tags_convertidas.append(TagRead(**tag.model_dump()))
 
     # Cria o DTO. Note que removemos 'url_externa' do construtor.

@@ -221,7 +221,7 @@ async def adicionar_recurso_playlist(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permissão negada para editar recurso")
     
     # Verificar se recurso existe
-    recurso = await verificar_recurso_existe(data.recurso_id, session)
+    await verificar_recurso_existe(data.recurso_id, session)
     
     # Verificar se recurso já está na playlist
     statement = select(PlaylistRecurso).where(
