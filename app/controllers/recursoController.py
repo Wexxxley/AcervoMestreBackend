@@ -613,54 +613,31 @@ async def remover_tag_do_recurso(
         raise HTTPException(status_code=404, detail="Recurso não encontrado")
 
     # 2. Verificar Permissão
-    if not (current_user.id == recurso.autor_id or current_user.perfil == Perfil.Coordenador or current_user.perfil == Perfil.Gestor):
+    if not (
+        current_user.id == recurso.autor_id
+        or current_user.perfil == Perfil.Coordenador
+        or current_user.perfil == Perfil.Gestor
+    ):
         raise HTTPException(status_code=403, detail="Permissão negada")
 
-    # Processar de acordo com o tipo
-    if recurso.estrutura == EstruturaRecurso.UPLOAD:
-        if not recurso.storage_key:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Recurso de upload sem storage_key"
-            )
-        
-        # Incrementar downloads
-        await session.exec(
-            update(Recurso)
-            .where(Recurso.id == recurso_id)
-            .values(downloads=Recurso.downloads + 1)
-        )
-        await session.commit()
-        
-        # Buscar recurso atualizado
-        result = await session.exec(statement)
-        recurso = result.first()
-        
-        # Gerar URL do arquivo
-        # Se storage_key já é uma URL completa (Supabase), usar diretamente
-        # Se é uma chave simples (MinIO), gerar a URL
-        if recurso.storage_key.startswith("http"):
-            download_url = recurso.storage_key  # Supabase - já é URL pública
-        else:
-            download_url = s3_service.get_file_url(recurso.storage_key)  # MinIO
-        
-        return RecursoDownloadResponse(
-            message="URL de download gerada com sucesso",
-            download_url=download_url,
-            downloads=recurso.downloads
-        )
+    # 3. Verificar se a associação Recurso-Tag existe
+    rt_stmt = select(RecursoTag).where(
+        RecursoTag.recurso_id == recurso_id,
+        RecursoTag.tag_id == tag_id,
+    )
+    rt_result = await session.exec(rt_stmt)
+    recurso_tag = rt_result.first()
     
-    elif recurso.estrutura == EstruturaRecurso.URL:
-        # Para URLs externas, apenas retornar a URL
-        return RecursoDownloadResponse(
-            message="URL externa do recurso",
-            download_url=recurso.url_externa,
-            downloads=recurso.downloads
-        )
-    
-    elif recurso.estrutura == EstruturaRecurso.NOTA:
-        # Notas não têm download
+    if not recurso_tag:
+        # Tag não está associada a este recurso
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Operação de download não suportada para recursos do tipo NOTA"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tag não associada a este recurso",
         )
+
+    # 4. Remover a associação e confirmar
+    await session.delete(recurso_tag)
+    await session.commit()
+    
+    # 204 No Content conforme definido no decorator
+    return
