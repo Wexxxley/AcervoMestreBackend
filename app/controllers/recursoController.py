@@ -71,10 +71,12 @@ def preencher_link_acesso(recurso: Recurso) -> RecursoRead:
     if recurso.estrutura == EstruturaRecurso.UPLOAD and recurso.storage_key:
         # Detectar qual serviço de storage usar
         from app.core.config import settings
-        
-        if settings.SUPABASE_URL and settings.SUPABASE_KEY:
+
+        has_supabase = bool(settings.SUPABASE_URL.strip()) and bool(settings.SUPABASE_KEY.strip())
+
+        if has_supabase:
             # Gerar URL pública do Supabase
-            dto.link_acesso = f"{settings.SUPABASE_URL}/storage/v1/object/public/{settings.SUPABASE_BUCKET_NAME}/{recurso.storage_key}"
+            dto.link_acesso = supabase_storage_service.get_public_url(recurso.storage_key)
         else:
             # Gerar URL presignada do MinIO
             dto.link_acesso = s3_service.get_file_url(recurso.storage_key, download=False)
@@ -313,8 +315,10 @@ async def create_recurso(
         
         # Detectar qual serviço de storage usar baseado nas variáveis de ambiente
         from app.core.config import settings
-        
-        if settings.SUPABASE_URL and settings.SUPABASE_KEY:
+
+        has_supabase = bool(settings.SUPABASE_URL.strip()) and bool(settings.SUPABASE_KEY.strip())
+
+        if has_supabase:
             # Usar Supabase em produção
             upload_result = await supabase_storage_service.upload_file(file)
         else:
