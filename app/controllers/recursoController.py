@@ -69,7 +69,15 @@ def preencher_link_acesso(recurso: Recurso) -> RecursoRead:
     
     # Lógica de preenchimento do Link
     if recurso.estrutura == EstruturaRecurso.UPLOAD and recurso.storage_key:
-        dto.link_acesso = s3_service.get_file_url(recurso.storage_key, download=False)
+        # Detectar qual serviço de storage usar
+        from app.core.config import settings
+        
+        if settings.SUPABASE_URL and settings.SUPABASE_KEY:
+            # Gerar URL pública do Supabase
+            dto.link_acesso = f"{settings.SUPABASE_URL}/storage/v1/object/public/{settings.SUPABASE_BUCKET_NAME}/{recurso.storage_key}"
+        else:
+            # Gerar URL presignada do MinIO
+            dto.link_acesso = s3_service.get_file_url(recurso.storage_key, download=False)
     
     elif recurso.estrutura == EstruturaRecurso.URL:
         # Pegamos do banco e jogamos no link_acesso
