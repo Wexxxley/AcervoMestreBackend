@@ -303,8 +303,15 @@ async def create_recurso(
                 detail="Arquivo é obrigatório para recursos do tipo UPLOAD"
             )
         
-        # Fazer upload do arquivo para MinIO
-        upload_result = await s3_service.upload_file(file)
+        # Detectar qual serviço de storage usar baseado nas variáveis de ambiente
+        from app.core.config import settings
+        
+        if settings.SUPABASE_URL and settings.SUPABASE_KEY:
+            # Usar Supabase em produção
+            upload_result = await supabase_storage_service.upload_file(file)
+        else:
+            # Usar MinIO em desenvolvimento
+            upload_result = await s3_service.upload_file(file)
         
         recurso_data.update({
             "storage_key": upload_result["storage_key"],
