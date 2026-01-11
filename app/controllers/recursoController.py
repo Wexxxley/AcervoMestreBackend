@@ -660,3 +660,40 @@ async def remover_tag_do_recurso(
     
     # 204 No Content conforme definido no decorator
     return
+
+
+@recurso_router.post("/{recurso_id}/download", status_code=status.HTTP_204_NO_CONTENT)
+async def registrar_download(
+    recurso_id: int,
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Incrementa o contador de downloads de um recurso.
+    Deve ser chamado pelo frontend sempre que o usuário clicar no botão de baixar/abrir.
+    """
+    statement = update(Recurso).where(Recurso.id == recurso_id).values(downloads=Recurso.downloads + 1)
+    result = await session.exec(statement)
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Recurso não encontrado")
+    await session.commit()
+    return
+
+
+@recurso_router.post("/{recurso_id}/like", status_code=status.HTTP_200_OK)
+async def toggle_curtida(
+    recurso_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Incrementa o contador de curtidas. 
+    Nota: Para um sistema real 'anti-spam', seria necessária uma tabela 'Curtida' 
+    para evitar que o mesmo user curta várias vezes. Aqui faremos o incremento simples.
+    """
+    statement = update(Recurso).where(Recurso.id == recurso_id).values(curtidas=Recurso.curtidas + 1)
+    result = await session.exec(statement)
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Recurso não encontrado")
+    
+    await session.commit()
+    return {"message": "Curtida registrada"}
