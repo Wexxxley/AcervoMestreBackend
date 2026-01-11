@@ -1,8 +1,107 @@
-# 📚 Acervo Mestre API
+# � Acervo Mestre - Backend
 
-Backend do sistema **Acervo Mestre**, desenvolvido com **FastAPI**, **SQLModel** e **PostgreSQL**.
+O **Acervo Mestre** é uma plataforma robusta para gestão de recursos educacionais, permitindo o armazenamento, categorização e compartilhamento de materiais em diversos formatos (Upload, URL externa ou Notas em Markdown).
 
-Este guia contém o passo a passo para configurar o ambiente de desenvolvimento local.
+Este guia contém o passo a passo para configurar o ambiente de desenvolvimento local e informações sobre a arquitetura do sistema.
+
+-----
+
+## 🛠️ Tecnologias Utilizadas
+
+* **Framework:** [FastAPI](https://fastapi.tiangolo.com/) - Alta performance e tipagem Python moderna
+* **ORM:** [SQLModel](https://sqlmodel.tiangolo.com/) - A união perfeita entre SQLAlchemy e Pydantic
+* **Banco de Dados:** PostgreSQL (Hospedado via **Neon.tech** em produção)
+* **Storage:** 
+  * **MinIO/S3:** Para armazenamento local/privado de arquivos
+  * **Supabase Storage:** Para distribuição escalável de assets
+* **Segurança:** OAuth2 com JWT (JSON Web Tokens)
+* **Migrations:** Alembic para versionamento do banco de dados
+* **Testes:** Pytest com cobertura automatizada
+
+-----
+
+## 🏗️ Arquitetura do Sistema
+
+O projeto segue uma estrutura modular para facilitar a manutenção e escalabilidade:
+
+```text
+app/
+├── controllers/    # Endpoints da API divididos por módulos
+├── core/          # Configurações globais (Segurança, DB, Injeção)
+├── dtos/          # Data Transfer Objects (Schemas Pydantic)
+├── enums/         # Enumerações (Perfis, Visibilidade, Estrutura)
+├── models/        # Definições das tabelas do banco (SQLModel)
+├── services/      # Lógica de negócio e integrações externas (S3, Supabase)
+└── utils/         # Funções auxiliares (Paginação, Formatação)
+```
+
+-----
+
+## 📊 Modelo de Dados (Métricas e Relacionamentos)
+
+O sistema foi desenhado para suportar alta interação. Cada recurso possui rastreamento dinâmico de performance e taxonomia organizada:
+
+* **Visualizações:** Incrementadas automaticamente a cada acesso detalhado
+* **Downloads:** Rastreamento de cliques em arquivos de upload via endpoint dedicado
+* **Curtidas:** Sistema de feedback para engajamento da comunidade
+* **Tags:** Relacionamento **N:N** via `RecursoTag` para filtragem avançada
+
+-----
+
+## 🔑 Níveis de Acesso (RBAC)
+
+A API utiliza um sistema de `RoleChecker` personalizado para proteger as rotas com base no perfil do usuário:
+
+| Perfil | Permissões |
+|---|---|
+| **Aluno** | Acesso apenas a recursos com visibilidade `PÚBLICO` |
+| **Professor** | Criação de recursos, gestão de tags e seus próprios materiais |
+| **Coordenador** | Moderação de recursos, edição de qualquer material e gestão de staff |
+| **Gestor** | Acesso administrativo total e configurações de sistema |
+
+-----
+
+## 🌐 API ao Vivo e Documentação
+
+O backend está implantado e pode ser testado diretamente pelo Swagger UI:
+
+🔗 **[Documentação Interativa (Swagger)](https://acervomestrebackend.onrender.com/docs#/)**
+
+### 🔓 Como realizar o Login (Ambiente de Teste)
+
+Para testar os endpoints protegidos (POST, PATCH, DELETE), siga estes passos:
+
+1. Acesse o link da documentação acima
+2. Vá no endpoint **Auth/login** e use as credenciais:
+   * **Email:** `admin@acervomestre.com`
+   * **Senha:** `Admin@123`
+3. Copie o `access_token` retornado
+4. Clique no botão **Authorize** (cadeado) no topo da página
+5. Cole o token no campo e clique em **Authorize**
+6. Após autorizar, todos os endpoints estarão liberados conforme o perfil de Gestor
+
+### 📌 Principais Endpoints
+
+#### Recursos
+* `GET /recursos/get_all` - Lista recursos com paginação e filtros
+* `GET /recursos/get/{recurso_id}` - Detalhes de um recurso específico
+* `POST /recursos/create` - Criar novo recurso (requer autenticação)
+* `POST /recursos/upload/supabase` - Upload de arquivo para Supabase
+* `PATCH /recursos/patch/{recurso_id}` - Atualizar recurso
+* `DELETE /recursos/delete/{recurso_id}` - Excluir recurso
+
+#### Métricas e Interação
+* `POST /recursos/{recurso_id}/download` - Registrar download de recurso
+* `POST /recursos/{recurso_id}/like` - Curtir um recurso (requer autenticação)
+
+#### Tags
+* `POST /recursos/add_tag/{recurso_id}` - Associar tag a recurso
+* `DELETE /recursos/remove_tag/{recurso_id}/{tag_id}` - Remover associação
+
+#### Autenticação
+* `POST /auth/login` - Login com email e senha
+* `POST /auth/register` - Registro de novo usuário
+* `GET /auth/me` - Informações do usuário autenticado
 
 -----
 
